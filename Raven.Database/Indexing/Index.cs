@@ -64,7 +64,7 @@ namespace Raven.Database.Indexing
 		private readonly ConcurrentDictionary<string, IIndexExtension> indexExtensions =
 			new ConcurrentDictionary<string, IIndexExtension>();
 
-		internal readonly string name;
+		internal readonly int name;
 
 		private readonly AbstractViewGenerator viewGenerator;
 		protected readonly WorkContext context;
@@ -83,14 +83,13 @@ namespace Raven.Database.Indexing
 		public long TimePerDoc { get; set; }
 		public Task CurrentMapIndexingTask { get; set; }
 
-		protected Index(Directory directory, string name, IndexDefinition indexDefinition, AbstractViewGenerator viewGenerator, WorkContext context)
+		protected Index(Directory directory, int id, IndexDefinition indexDefinition, AbstractViewGenerator viewGenerator, WorkContext context)
 		{
 			if (directory == null) throw new ArgumentNullException("directory");
-			if (name == null) throw new ArgumentNullException("name");
 			if (indexDefinition == null) throw new ArgumentNullException("indexDefinition");
 			if (viewGenerator == null) throw new ArgumentNullException("viewGenerator");
 
-			this.name = name;
+			this.name = id;
 			this.indexDefinition = indexDefinition;
 			this.viewGenerator = viewGenerator;
 			this.context = context;
@@ -138,7 +137,9 @@ namespace Raven.Database.Indexing
 			}
 		}
 
-		public volatile bool IsMapIndexingInProgress;
+	    public string PublicName { get { return this.indexDefinition.PublicName; } }
+
+	    public volatile bool IsMapIndexingInProgress;
 
 		protected void RecordCurrentBatch(string indexingStep, int size)
 		{
@@ -455,10 +456,10 @@ namespace Raven.Database.Indexing
 			switch (stats.Operation)
 			{
 				case IndexingWorkStats.Status.Map:
-					workContext.TransactionalStorage.Batch(accessor => accessor.Indexing.UpdateIndexingStats(name, stats));
+					workContext.TransactionalStorage.Batch(accessor => accessor.Indexing.UpdateIndexingStats(name.ToString(), stats));
 					break;
 				case IndexingWorkStats.Status.Reduce:
-					workContext.TransactionalStorage.Batch(accessor => accessor.Indexing.UpdateReduceStats(name, stats));
+					workContext.TransactionalStorage.Batch(accessor => accessor.Indexing.UpdateReduceStats(name.ToString(), stats));
 					break;
 				case IndexingWorkStats.Status.Ignore:
 					break;
@@ -676,7 +677,7 @@ namespace Raven.Database.Indexing
 																(currentAnalyzer, generator) =>
 																{
 																	Analyzer generateAnalyzer =
-																		generator.Value.GenerateAnalyzerForIndexing(name, luceneDoc,
+																		generator.Value.GenerateAnalyzerForIndexing(name.ToString(), luceneDoc,
 																											currentAnalyzer);
 																	if (generateAnalyzer != currentAnalyzer &&
 																		currentAnalyzer != analyzer)
@@ -1007,7 +1008,7 @@ namespace Raven.Database.Indexing
 			{
 				luceneQuery = indexQueryTriggers.Aggregate(luceneQuery,
 														   (current, indexQueryTrigger) =>
-														   indexQueryTrigger.Value.ProcessQuery(parent.name, current, indexQuery));
+														   indexQueryTrigger.Value.ProcessQuery(parent.name.ToString(), current, indexQuery));
 				return luceneQuery;
 			}
 
@@ -1199,7 +1200,7 @@ namespace Raven.Database.Indexing
 						searchAnalyzer = parent.CreateAnalyzer(new LowerCaseKeywordAnalyzer(), toDispose, true);
 						searchAnalyzer = parent.AnalyzerGenerators.Aggregate(searchAnalyzer, (currentAnalyzer, generator) =>
 						{
-							Analyzer newAnalyzer = generator.GenerateAnalyzerForQuerying(parent.name, indexQuery.Query, currentAnalyzer);
+							Analyzer newAnalyzer = generator.GenerateAnalyzerForQuerying(parent.name.ToString(), indexQuery.Query, currentAnalyzer);
 							if (newAnalyzer != currentAnalyzer)
 							{
 								DisposeAnalyzerAndFriends(toDispose, currentAnalyzer);
@@ -1369,8 +1370,8 @@ namespace Raven.Database.Indexing
 				if (incrementalTag != null)
 					backupDirectory = Path.Combine(backupDirectory, incrementalTag);
 
-				var allFilesPath = Path.Combine(backupDirectory, MonoHttpUtility.UrlEncode(name) + ".all-existing-index-files");
-				var saveToFolder = Path.Combine(backupDirectory, "Indexes", MonoHttpUtility.UrlEncode(name));
+				var allFilesPath = Path.Combine(backupDirectory, name + ".all-existing-index-files");
+				var saveToFolder = Path.Combine(backupDirectory, "Indexes", name.ToString());
 				System.IO.Directory.CreateDirectory(saveToFolder);
 				if (File.Exists(allFilesPath))
 				{
@@ -1394,7 +1395,7 @@ namespace Raven.Database.Indexing
 							// sure that we get the _at the time_ of the write. 
 							foreach (var fileName in new[] { "segments.gen", IndexStorage.IndexVersionFileName(indexDefinition)})
 							{
-								var fullPath = Path.Combine(path, MonoHttpUtility.UrlEncode(name), fileName);
+								var fullPath = Path.Combine(path, name.ToString(), fileName);
 								File.Copy(fullPath, Path.Combine(saveToFolder, fileName));
 								allFilesWriter.WriteLine(fileName);
 							}
@@ -1415,7 +1416,7 @@ namespace Raven.Database.Indexing
 					hasSnapshot = true;
 					foreach (var fileName in commit.FileNames)
 					{
-						var fullPath = Path.Combine(path, MonoHttpUtility.UrlEncode(name), fileName);
+						var fullPath = Path.Combine(path, name.ToString(), fileName);
 
 						if (".lock".Equals(Path.GetExtension(fullPath), StringComparison.InvariantCultureIgnoreCase))
 							continue;

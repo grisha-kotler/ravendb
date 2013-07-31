@@ -394,7 +394,7 @@ namespace Raven.Database
                         {
 							var indexInstance = IndexStorage.GetIndexInstance(s);
 	                        return (indexInstance != null && indexInstance.IsMapIndexingInProgress) ||
-	                               actions.Staleness.IsIndexStale(s, null, null);
+	                               actions.Staleness.IsIndexStale(s.ToString(), null, null);
                         }).ToArray();
 					result.Indexes = actions.Indexing.GetIndexesStats().Where(x => x != null).ToArray();
                 });
@@ -1003,7 +1003,7 @@ namespace Raven.Database
 
                             CheckReferenceBecauseOfDocumentUpdate(key, actions);
 
-                            foreach (var indexName in IndexDefinitionStorage.IndexNames)
+                            foreach (var indexName in IndexDefinitionStorage.Indexes)
                             {
                                 AbstractViewGenerator abstractViewGenerator =
                                     IndexDefinitionStorage.GetViewGenerator(indexName);
@@ -1020,7 +1020,7 @@ namespace Raven.Database
                                         continue;
                                 }
 
-                                string indexNameCopy = indexName;
+                                int indexNameCopy = indexName;
                                 var task = actions.GetTask(x => x.Index == indexNameCopy, new RemoveFromIndexTask
                                 {
                                     Index = indexNameCopy
@@ -1128,7 +1128,7 @@ namespace Raven.Database
                 return name; // no op for the same transformer
 
             IndexDefinitionStorage.CreateAndPersistTransform(definition);
-            IndexDefinitionStorage.AddTransform(name, definition);
+            IndexDefinitionStorage.AddTransform(definition.Name, definition);
 
             return name;
         }
@@ -1165,7 +1165,7 @@ namespace Raven.Database
                     return name;
                 case IndexCreationOptions.Update:
                     // ensure that the code can compile
-                    new DynamicViewCompiler(name, definition, Extensions, IndexDefinitionStorage.IndexDefinitionsPath, Configuration).GenerateInstance();
+                    new DynamicViewCompiler(definition.Name, definition, Extensions, IndexDefinitionStorage.IndexDefinitionsPath, Configuration).GenerateInstance();
                     DeleteIndex(name);
                     break;
             }
@@ -1186,7 +1186,7 @@ namespace Raven.Database
             // The act of adding it here make it visible to other threads
             // we have to do it in this way so first we prepare all the elements of the 
             // index, then we add it to the storage in a way that make it public
-            IndexDefinitionStorage.AddIndex(name, definition);
+            IndexDefinitionStorage.AddIndex(definition.Name, definition);
 
             InvokeSuggestionIndexing(name, definition);
 
