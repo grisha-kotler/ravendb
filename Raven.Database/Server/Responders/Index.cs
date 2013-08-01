@@ -210,7 +210,8 @@ namespace Raven.Database.Server.Responders
             List<ScheduledReductionDebugInfo> mappedResult = null;
             Database.TransactionalStorage.Batch(accessor =>
             {
-                mappedResult = accessor.MapReduce.GetScheduledReductionForDebug(index, context.GetStart(), context.GetPageSize(Settings.MaxPageSize))
+                var instance = Database.IndexStorage.GetIndexInstance(index);
+                mappedResult = accessor.MapReduce.GetScheduledReductionForDebug(instance.indexId, context.GetStart(), context.GetPageSize(Settings.MaxPageSize))
                     .ToList();
             });
             context.WriteJson(new
@@ -222,8 +223,8 @@ namespace Raven.Database.Server.Responders
 
         private void GetIndexKeysStats(IHttpContext context, string index)
         {
-            if (Database.IndexDefinitionStorage.GetIndexDefinition(index) == null)
-            {
+            var definition = Database.IndexDefinitionStorage.GetIndexDefinition(index);
+            if (definition == null) {
                 context.SetStatusToNotFound();
                 return;
             }
@@ -231,7 +232,7 @@ namespace Raven.Database.Server.Responders
             List<ReduceKeyAndCount> keys = null;
             Database.TransactionalStorage.Batch(accessor =>
             {
-                keys = accessor.MapReduce.GetKeysStats(index,
+                keys = accessor.MapReduce.GetKeysStats(definition.IndexId,
                          context.GetStart(),
                          context.GetPageSize(Database.Configuration.MaxPageSize))
                     .ToList();
@@ -363,7 +364,8 @@ namespace Raven.Database.Server.Responders
 
         private void GetIndexMappedResult(IHttpContext context, string index)
         {
-            if (Database.IndexDefinitionStorage.GetIndexDefinition(index) == null)
+            var definition = Database.IndexDefinitionStorage.GetIndexDefinition(index);
+            if (definition == null)
             {
                 context.SetStatusToNotFound();
                 return;
@@ -374,7 +376,7 @@ namespace Raven.Database.Server.Responders
                 List<string> keys = null;
                 Database.TransactionalStorage.Batch(accessor =>
                 {
-                    keys = accessor.MapReduce.GetKeysForIndexForDebug(index, context.GetStart(), context.GetPageSize(Settings.MaxPageSize))
+                    keys = accessor.MapReduce.GetKeysForIndexForDebug(definition.IndexId, context.GetStart(), context.GetPageSize(Settings.MaxPageSize))
                         .ToList();
                 });
 
@@ -390,7 +392,7 @@ namespace Raven.Database.Server.Responders
             List<MappedResultInfo> mappedResult = null;
             Database.TransactionalStorage.Batch(accessor =>
             {
-                mappedResult = accessor.MapReduce.GetMappedResultsForDebug(index, key, context.GetStart(), context.GetPageSize(Settings.MaxPageSize))
+                mappedResult = accessor.MapReduce.GetMappedResultsForDebug(definition.IndexId, key, context.GetStart(), context.GetPageSize(Settings.MaxPageSize))
                     .ToList();
             });
             context.WriteJson(new
@@ -402,7 +404,8 @@ namespace Raven.Database.Server.Responders
 
         private void GetIndexReducedResult(IHttpContext context, string index)
         {
-            if (Database.IndexDefinitionStorage.GetIndexDefinition(index) == null)
+            var definition = Database.IndexDefinitionStorage.GetIndexDefinition(index);
+            if(definition == null)
             {
                 context.SetStatusToNotFound();
                 return;
@@ -432,7 +435,7 @@ namespace Raven.Database.Server.Responders
             List<MappedResultInfo> mappedResult = null;
             Database.TransactionalStorage.Batch(accessor =>
             {
-                mappedResult = accessor.MapReduce.GetReducedResultsForDebug(index, key, level, context.GetStart(), context.GetPageSize(Settings.MaxPageSize))
+                mappedResult = accessor.MapReduce.GetReducedResultsForDebug(definition.IndexId, key, level, context.GetStart(), context.GetPageSize(Settings.MaxPageSize))
                     .ToList();
             });
             context.WriteJson(new
