@@ -1,0 +1,1 @@
+git.exe am --3way --ignore-space-change --keep-cr  %1
