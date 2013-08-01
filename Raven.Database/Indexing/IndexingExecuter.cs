@@ -45,7 +45,7 @@ namespace Raven.Database.Indexing
 			if (indexesStat.LastIndexedEtag.CompareTo(synchronizationEtag) > 0)
 				return true;
 
-			var isStale = actions.Staleness.IsMapStale(indexesStat.Name);
+		    var isStale = actions.Staleness.IsMapStale(indexesStat.Id);
 			var indexingPriority = indexesStat.Priority;
 			if (isStale == false)
 				return false;

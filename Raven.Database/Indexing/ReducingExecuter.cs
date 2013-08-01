@@ -318,7 +318,7 @@ namespace Raven.Database.Indexing
 		protected override bool IsIndexStale(IndexStats indexesStat, Etag synchronizationEtag, IStorageActionsAccessor actions, bool isIdle, Reference<bool> onlyFoundIdleWork)
 		{
 			onlyFoundIdleWork.Value = false;
-			return actions.Staleness.IsReduceStale(indexesStat.Name);
+		    return actions.Staleness.IsReduceStale(indexesStat.Id);
 		}
 
 		protected override Task GetApplicableTask(IStorageActionsAccessor actions)
