@@ -535,7 +535,7 @@ namespace Raven.Database.Indexing
 								ex =>
 								{
 									logIndexing.WarnException("Failed to notify index update trigger batcher about an error", ex);
-									Context.AddError(indexId,  parent.indexDefinition.PublicName, null, ex.Message, "AnErrorOccured Trigger");
+									Context.AddError(indexId,  parent.indexDefinition.Name, null, ex.Message, "AnErrorOccured Trigger");
 								},
 								x => x.AnErrorOccured(e));
 						}
@@ -549,7 +549,7 @@ namespace Raven.Database.Indexing
 								e =>
 								{
 									logIndexing.WarnException("Failed to dispose on index update trigger", e);
-									Context.AddError(indexId, parent.indexDefinition.PublicName, null, e.Message, "Dispose Trigger");
+									Context.AddError(indexId, parent.indexDefinition.Name, null, e.Message, "Dispose Trigger");
 								},
 								x => x.Dispose());
 						}

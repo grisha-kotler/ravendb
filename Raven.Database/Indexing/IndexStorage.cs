@@ -410,7 +410,7 @@ namespace Raven.Database.Indexing
 
 		private static void CheckIndexAndTryToFix(Lucene.Net.Store.Directory directory, string indexDirectory)
 		{
-			startupLog.Warn("Unclean shutdown detected on {0}, checking the index for errors. This may take a while.", indexDefinition.PublicName);
+			startupLog.Warn("Unclean shutdown detected on {0}, checking the index for errors. This may take a while.", indexDefinition.Name);
 
 			var memoryStream = new MemoryStream();
 			var stringWriter = new StreamWriter(memoryStream);
@@ -424,7 +424,7 @@ namespace Raven.Database.Indexing
 			sp.Stop();
 			if (startupLog.IsWarnEnabled)
 			{
-				startupLog.Warn("Checking index {0} took: {1}, clean: {2}", indexDefinition.PublicName, sp.Elapsed, status.clean);
+				startupLog.Warn("Checking index {0} took: {1}, clean: {2}", indexDefinition.Name, sp.Elapsed, status.clean);
 				memoryStream.Position = 0;
 
 				log.Warn(new StreamReader(memoryStream).ReadToEnd());
@@ -433,10 +433,10 @@ namespace Raven.Database.Indexing
 			if (status.clean)
 				return;
 
-			startupLog.Warn("Attempting to fix index: {0}", indexDefinition.PublicName);
+			startupLog.Warn("Attempting to fix index: {0}", indexDefinition.Name);
 			sp.Restart();
 			checkIndex.FixIndex(status);
-			startupLog.Warn("Fixed index {0} in {1}", indexDefinition.PublicName, sp.Elapsed);
+			startupLog.Warn("Fixed index {0} in {1}", indexDefinition.Name, sp.Elapsed);
 		}
 
 		public void StoreCommitPoint(string indexName, IndexCommitPoint indexCommit)
@@ -672,7 +672,7 @@ namespace Raven.Database.Indexing
 
 		public void CreateIndexImplementation(IndexDefinition indexDefinition)
 		{
-			log.Debug("Creating index {0} with id {1}", indexDefinition.IndexId, indexDefinition.PublicName);
+			log.Debug("Creating index {0} with id {1}", indexDefinition.IndexId, indexDefinition.Name);
 
 			IndexDefinitionStorage.ResolveAnalyzers(indexDefinition);
 			AssertAnalyzersValid(indexDefinition);
