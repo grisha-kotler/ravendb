@@ -1441,6 +1441,7 @@ namespace Raven.Database
         {
             using (IndexDefinitionStorage.TryRemoveIndexContext())
             {
+                if (instance == null) return;
                 name = IndexDefinitionStorage.FixupIndexName(name);
                 IndexDefinitionStorage.RemoveIndex(name);
                 IndexStorage.DeleteIndex(name);
