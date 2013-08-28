@@ -20,13 +20,14 @@ namespace Raven.Database.Plugins.Builtins
 				List<string> indexNames = actions.Indexing.GetIndexesStats().Select(x => x.Name).ToList();
 				foreach (string indexName in indexNames)
 				{
-					if (database.IndexDefinitionStorage.Contains(indexName))
+				    var index = database.IndexDefinitionStorage.GetIndexDefinition(id);
+					if (index != null)
 						continue;
 
 					// index is not found on disk, better kill for good
 					// Even though technically we are running into a situation that is considered to be corrupt data
 					// we can safely recover from it by removing the other parts of the index.
-					database.IndexStorage.DeleteIndex(index.Name);
+					database.IndexStorage.DeleteIndex(id);
 					actions.Indexing.DeleteIndex(id);
 				}
 			});
