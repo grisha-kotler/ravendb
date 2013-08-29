@@ -24,7 +24,7 @@ namespace Raven.Database.Indexing
 
 		protected void HandleReduceForIndex(IndexToWorkOn indexToWorkOn)
 		{
-			var viewGenerator = context.IndexDefinitionStorage.GetViewGenerator(indexToWorkOn.IndexName);
+			var viewGenerator = context.IndexDefinitionStorage.GetViewGenerator(indexToWorkOn.IndexId);
 			if (viewGenerator == null)
 				return;
 
@@ -70,7 +70,7 @@ namespace Raven.Database.Indexing
 
 						if (latest == null)
 							return;
-						actions.Indexing.UpdateLastReduced(indexToWorkOn.IndexName.ToString(), latest.Etag, latest.Timestamp);
+						actions.Indexing.UpdateLastReduced(indexToWorkOn.IndexId.ToString(), latest.Etag, latest.Timestamp);
 					});
 				}
 			}
@@ -137,9 +137,9 @@ namespace Raven.Database.Indexing
 								Log.Debug(() => string.Format("Found {0} results for keys [{1}] for index {2} at level {3} in {4}",
 															  persistedResults.Count,
 															  string.Join(", ", persistedResults.Select(x => x.ReduceKey).Distinct()),
-															  index.IndexName, level, batchTimeWatcher.Elapsed));
+															  index.IndexId, level, batchTimeWatcher.Elapsed));
 							else
-								Log.Debug("No reduce keys found for {0}", index.IndexName);
+								Log.Debug("No reduce keys found for {0}", index.IndexId);
 						}
 
 						context.CancellationToken.ThrowIfCancellationRequested();
@@ -177,11 +177,11 @@ namespace Raven.Database.Indexing
 						context.CancellationToken.ThrowIfCancellationRequested();
 						var reduceTimeWatcher = Stopwatch.StartNew();
 
-						context.IndexStorage.Reduce(index.IndexName, viewGenerator, results, level, context, actions, reduceKeys, persistedResults.Count);
+						context.IndexStorage.Reduce(index.IndexId, viewGenerator, results, level, context, actions, reduceKeys, persistedResults.Count);
 
 						var batchDuration = batchTimeWatcher.Elapsed;
 						Log.Debug("Indexed {0} reduce keys in {1} with {2} results for index {3} in {4} on level {5}", reduceKeys.Count, batchDuration,
-								  results.Length, index.IndexName, reduceTimeWatcher.Elapsed, level);
+								  results.Length, index.IndexId, reduceTimeWatcher.Elapsed, level);
 
 						autoTuner.AutoThrottleBatchSize(count, size, batchDuration);
 					});
@@ -295,7 +295,7 @@ namespace Raven.Database.Indexing
 			context.ReducedPerSecIncreaseBy(results.Length);
 
 			context.TransactionalStorage.Batch(actions =>
-				context.IndexStorage.Reduce(index.IndexName, viewGenerator, results, 2, context, actions, reduceKeys, state.Sum(x=>x.Item2.Count))
+				context.IndexStorage.Reduce(index.IndexId, viewGenerator, results, 2, context, actions, reduceKeys, state.Sum(x=>x.Item2.Count))
 				);
 
 			autoTuner.AutoThrottleBatchSize(count, size, batchTimeWatcher.Elapsed);
@@ -345,7 +345,7 @@ namespace Raven.Database.Indexing
 		{
 			return new IndexToWorkOn
 			{
-				IndexName = indexesStat.Name,
+				IndexId = indexesStat.Id,
 				LastIndexedEtag = Etag.Empty
 			};
 		}

@@ -102,7 +102,7 @@ namespace Raven.Database.Indexing
 		{
 			return new IndexToWorkOn
 			{
-				IndexName = indexesStat.Name,
+                IndexId = indexesStat.Id,
 				LastIndexedEtag = indexesStat.LastIndexedEtag,
 			};
 		}
