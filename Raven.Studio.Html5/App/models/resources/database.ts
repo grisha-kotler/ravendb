@@ -1,3 +1,4 @@
+/// <reference path="../../models/dto.ts"/>
 import resource = require("models/resources/resource");
 import license = require("models/auth/license");
 import databaseStatistics = require("models/resources/databaseStatistics");

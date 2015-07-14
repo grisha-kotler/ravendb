@@ -93,7 +93,7 @@ class svgDownloader {
             var canvas = document.createElement('canvas');
             canvas.width = image.width;
             canvas.height = image.height;
-            var context = canvas.getContext('2d');
+            var context: any = canvas.getContext('2d');
             context.drawImage(image, 0, 0);
             var dataUrlStripped = canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, "");
             var blob = svgDownloader.b64toBlob(dataUrlStripped, 'image/png');
