@@ -116,7 +116,7 @@ namespace Raven.Tests.TimeSeries
 			{
 				await store.CreatePrefixConfigurationAsync("-Simple", 1);
 				
-				var start = DateTime.Now;
+				var start = new DateTime(2015, 1, 1);
 				for (int i = 0; i < 12; i++)
 				{
 					await store.AppendAsync("-Simple", "Time", start.AddHours(i), i + 3D);
@@ -157,6 +157,49 @@ namespace Raven.Tests.TimeSeries
 				Assert.Equal(2, stats.PrefixesCount);
 				Assert.Equal(3, stats.KeysCount);
 				Assert.Equal(1888 * 3, stats.ValuesCount);
+
+				WaitForUserToContinueTheTest(startPage: "/studio/index.html#timeseries/series?prefix=-Simple&key=Money&timeseries=SeriesName-1");
+			}
+		}
+
+		[Fact]
+		public async Task GetKeys()
+		{
+			using (var store = NewRemoteTimeSeriesStore())
+			{
+				await store.CreatePrefixConfigurationAsync("-Simple", 1);
+				await store.CreatePrefixConfigurationAsync("-ForValues", 4);
+
+				await store.AppendAsync("-ForValues", "Time", DateTime.Now, new[] { 3D, 4D, 5D, 6D });
+				await store.AppendAsync("-Simple", "Is", DateTime.Now, 3D);
+				await store.AppendAsync("-Simple", "Money", DateTime.Now, 3D);
+
+				var cancellationToken = new CancellationToken();
+				await store.AppendAsync("-Simple", "Is", DateTime.Now.AddHours(1), 3456D, cancellationToken);
+				await store.AppendAsync("-ForValues", "Time", DateTime.Now.AddHours(1), new[] { 23D, 4D, 5D, 6D }, cancellationToken);
+				await store.AppendAsync("-ForValues", "Time", DateTime.Now.AddHours(2), cancellationToken, 33D, 4D, 5D, 6D);
+				await store.AppendAsync("-ForValues", "Time", DateTime.Now.AddHours(3), cancellationToken, 33D, 4D, 5D, 6D);
+
+				var keys = await store.Advanced.GetKeys(cancellationToken);
+				Assert.Equal(3, keys.Length);
+				
+				var time = keys[0];
+				Assert.Equal("-ForValues", time.Prefix);
+				Assert.Equal(4, time.ValueLength);
+				Assert.Equal("Time", time.Key);
+				Assert.Equal(4, time.PointsCount);
+
+				var _is = keys[1];
+				Assert.Equal("-Simple", _is.Prefix);
+				Assert.Equal(1, _is.ValueLength);
+				Assert.Equal("Is", _is.Key);
+				Assert.Equal(2, _is.PointsCount);
+
+				var money = keys[2];
+				Assert.Equal("-Simple", money.Prefix);
+				Assert.Equal(1, money.ValueLength);
+				Assert.Equal("Money", money.Key);
+				Assert.Equal(1, money.PointsCount);
 			}
 		}
 	}

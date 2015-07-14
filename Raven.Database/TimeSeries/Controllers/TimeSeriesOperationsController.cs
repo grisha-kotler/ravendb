@@ -41,6 +41,8 @@ namespace Raven.Database.TimeSeries.Controllers
 				return GetMessageWithString("Prefix must start with '-' char", HttpStatusCode.BadRequest);
 
 			Storage.CreatePrefixConfiguration(prefix, valueLength);
+			Storage.MetricsTimeSeries.ClientRequests.Mark();
+
 			return new HttpResponseMessage(HttpStatusCode.Created);
 		}
 
@@ -55,14 +57,16 @@ namespace Raven.Database.TimeSeries.Controllers
 				return GetMessageWithString("Prefix must start with '-' char", HttpStatusCode.BadRequest);
 
 			Storage.DeletePrefixConfiguration(prefix);
+			Storage.MetricsTimeSeries.ClientRequests.Mark();
+
 			return new HttpResponseMessage(HttpStatusCode.Created);
 		}
 
 		[RavenRoute("ts/{timeSeriesName}/append/{prefix}/{key}")]
 		[HttpPost]
-		public HttpResponseMessage Append(string prefix, string key, TimeSeriesAppendRequest input)
+		public HttpResponseMessage Append(string prefix, string key, TimeSeriesPoint input)
 		{
-			if (string.IsNullOrEmpty(prefix) || string.IsNullOrEmpty(key) || input.Time < DateTime.MinValue.Ticks || input.Values == null || input.Values.Length == 0)
+			if (string.IsNullOrEmpty(prefix) || string.IsNullOrEmpty(key) || input.Values == null || input.Values.Length == 0)
 				return GetEmptyMessage(HttpStatusCode.BadRequest);
 
 			if (prefix.StartsWith("-") == false)
@@ -70,16 +74,16 @@ namespace Raven.Database.TimeSeries.Controllers
 
 			using (var writer = Storage.CreateWriter())
 			{
-				writer.Append(prefix, key, new DateTime(input.Time), input.Values);
+				writer.Append(prefix, key, input.At, input.Values);
 				writer.Commit();
 
 				Storage.MetricsTimeSeries.ClientRequests.Mark();
-				Storage.Publisher.RaiseNotification(new TimeSeriesKeyNotification
+				Storage.Publisher.RaiseNotification(new KeyChangeNotification
 				{
 					Prefix = prefix,
 					Key = key,
 					Action = TimeSeriesChangeAction.Append,
-					At = input.Time,
+					At = input.At,
 					Values = input.Values,
 				});
 
@@ -134,7 +138,7 @@ namespace Raven.Database.TimeSeries.Controllers
 		            {
 						using (var writer = Storage.CreateWriter())
 						{
-							Storage.Publisher.RaiseNotification(new TimeSeriesBulkOperationNotification
+							Storage.Publisher.RaiseNotification(new BulkOperationNotification
 							{
 								Type = BatchType.Started,
 								OperationId = operationId
@@ -146,7 +150,7 @@ namespace Raven.Database.TimeSeries.Controllers
 							}
 							writer.Commit();
 
-							Storage.Publisher.RaiseNotification(new TimeSeriesBulkOperationNotification
+							Storage.Publisher.RaiseNotification(new BulkOperationNotification
 							{
 								Type = BatchType.Ended,
 								OperationId = operationId
@@ -157,7 +161,7 @@ namespace Raven.Database.TimeSeries.Controllers
 	            catch (OperationCanceledException)
 	            {
 					// happens on timeout
-		            Storage.Publisher.RaiseNotification(new TimeSeriesBulkOperationNotification
+		            Storage.Publisher.RaiseNotification(new BulkOperationNotification
 		            {
 			            Type = BatchType.Error,
 			            OperationId = operationId,
@@ -171,7 +175,7 @@ namespace Raven.Database.TimeSeries.Controllers
 	            catch (Exception e)
 	            {
 		            var errorMessage = e.SimplifyException().Message;
-					Storage.Publisher.RaiseNotification(new TimeSeriesBulkOperationNotification
+					Storage.Publisher.RaiseNotification(new BulkOperationNotification
 					{
 						Type = BatchType.Error,
 						OperationId = operationId,
@@ -297,7 +301,7 @@ namespace Raven.Database.TimeSeries.Controllers
 				writer.Commit();
 
 				Storage.MetricsTimeSeries.Deletes.Mark();
-				Storage.Publisher.RaiseNotification(new TimeSeriesKeyNotification
+				Storage.Publisher.RaiseNotification(new KeyChangeNotification
 				{
 					Prefix = prefix,
 					Key = key,
@@ -332,7 +336,7 @@ namespace Raven.Database.TimeSeries.Controllers
 				writer.Commit();
 
 				Storage.MetricsTimeSeries.Deletes.Mark();
-				Storage.Publisher.RaiseNotification(new TimeSeriesKeyNotification
+				Storage.Publisher.RaiseNotification(new KeyChangeNotification
 				{
 					Prefix = prefix,
 					Key = key,
@@ -345,17 +349,33 @@ namespace Raven.Database.TimeSeries.Controllers
 			}
 		}
 
-		/*[RavenRoute("ts/{timeSeriesName}/timeSeries")]
+		[RavenRoute("ts/{timeSeriesName}/keys")]
 		[HttpGet]
-		public HttpResponseMessage GetTimeSeries(int skip = 0, int take = 20, string key = null)
+		public HttpResponseMessage GetKeys()
 		{
 			using (var reader = Storage.CreateReader())
 			{
-				var groupsPrefix = (group == null) ? string.Empty : (group + Constants.TimeSeries.Separator);
-				var timeSeriesByPrefixes = reader.GetTimeSeriesByPrefixes(groupsPrefix, skip, take);
-				var timeSeries = timeSeriesByPrefixes.Select(groupWithTimeSeriesName => reader.GetTimeSeriesSummary(groupWithTimeSeriesName)).ToList();
-				return GetMessageWithObject(timeSeries);
+				Storage.MetricsTimeSeries.ClientRequests.Mark();
+				var keys = reader.GetKeys().ToArray();
+				return Request.CreateResponse(HttpStatusCode.OK, keys);
 			}
-		}*/
+		}
+
+		[RavenRoute("ts/{timeSeriesName}/{prefix}/{key}/points")]
+		[HttpGet]
+		public HttpResponseMessage GetPoints(string prefix, string key, int skip = 0, int take = 20)
+		{
+			if (skip < 0)
+				throw new ArgumentException("Bad argument", "skip");
+			if (take <= 0)
+				throw new ArgumentException("Bad argument", "take");
+
+			Storage.MetricsTimeSeries.ClientRequests.Mark();
+			using (var reader = Storage.CreateReader())
+			{
+				var points = reader.GetPoints(prefix, key, skip).Take(take);
+				return GetMessageWithObject(points);
+			}
+		}
 	}
 }

@@ -33,7 +33,6 @@ namespace Raven.Database.TimeSeries
 		private volatile bool disposed;
 
 		private readonly StorageEnvironment storageEnvironment;
-		private readonly TransportState transportState;
 		private readonly NotificationPublisher notificationPublisher;
 		private readonly TimeSeriesMetricsManager metricsTimeSeries;
 
@@ -66,8 +65,8 @@ namespace Raven.Database.TimeSeries
 				: CreateStorageOptionsFromConfiguration(configuration.TimeSeries.DataDirectory, configuration.Settings);
 
 			storageEnvironment = new StorageEnvironment(options);
-			transportState = receivedTransportState ?? new TransportState();
-			notificationPublisher = new NotificationPublisher(transportState);
+			TransportState = receivedTransportState ?? new TransportState();
+			notificationPublisher = new NotificationPublisher(TransportState);
 			ExtensionsState = new AtomicDictionary<object>();
 
 			Configuration = configuration;
@@ -474,6 +473,66 @@ namespace Raven.Database.TimeSeries
 			{
 				if (tx != null)
 					tx.Dispose();
+			}
+
+			public IEnumerable<TimeSeriesPoint> GetPoints(string prefix, string key, int skip)
+			{
+				for (int i = 0; i < 10; i++)
+				{
+					yield return new TimeSeriesPoint
+					{
+						At = DateTime.Now.AddYears(-2),
+						Values = new[] {4d,5d,56d },
+					};
+				}
+			}
+
+			public IEnumerable<TimeSeriesKey> GetKeys()
+			{
+				using (var rootIt = tx.State.Root.Iterate())
+				{
+					rootIt.RequiredPrefix = SeriesTreePrefix;
+					if (rootIt.Seek(rootIt.RequiredPrefix))
+					{
+						do
+						{
+							var prefixedTreeName = rootIt.CurrentKey.ToString();
+							var prefix = prefixedTreeName.Replace(SeriesTreePrefix, "");
+							var valueLength = storage.GetPrefixConfiguration(prefix);
+							var tree = tx.ReadTree(prefixedTreeName);
+							using (var it = tree.Iterate())
+							{
+								if (it.Seek(Slice.BeforeAllKeys))
+								{
+									do
+									{
+										var key = it.CurrentKey.ToString();
+										var fixedTree = tree.FixedTreeFor(key, (byte) (valueLength * sizeof(double)));
+										long pointsCount = 0;
+										using (var fixedIt = fixedTree.Iterate())
+										{
+											if (fixedIt.Seek(DateTime.MinValue.Ticks))
+											{
+												do
+												{
+													pointsCount++;
+												} while (fixedIt.MoveNext());
+											}
+										}
+
+										yield return new TimeSeriesKey
+										{
+											Prefix = prefix,
+											ValueLength = valueLength,
+											Key = key,
+											PointsCount = pointsCount,
+										};
+									} while (it.MoveNext());
+								}
+							}
+						} while (rootIt.MoveNext());
+					}
+				}
 			}
 		}
 
