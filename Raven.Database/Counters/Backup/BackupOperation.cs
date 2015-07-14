@@ -16,25 +16,25 @@ namespace Raven.Database.Counters.Backup
 {
 	public class BackupOperation
 	{
+		private static readonly ILog Log = LogManager.GetCurrentClassLogger();
 		private readonly CounterStorage storage;
 		private readonly string backupDestinationDirectory;
 		private readonly StorageEnvironment env;
 		private readonly bool incrementalBackup;
-		private readonly CounterStorageDocument counterDocument;
+		private readonly CounterStorageDocument counterStorageDocument;
 
-		private static readonly ILog _log = LogManager.GetCurrentClassLogger();
 		private readonly string backupFilename;
 		private readonly string backupSourceDirectory;
 
-		public BackupOperation(CounterStorage storage, string backupSourceDirectory, string backupDestinationDirectory, StorageEnvironment env, bool incrementalBackup, CounterStorageDocument counterDocument)
+		public BackupOperation(CounterStorage storage, string backupSourceDirectory, string backupDestinationDirectory, StorageEnvironment env, bool incrementalBackup, CounterStorageDocument counterStorageDocument)
 		{
 			this.storage = storage;
 			this.backupDestinationDirectory = backupDestinationDirectory;
 			this.env = env;
 			this.incrementalBackup = incrementalBackup;
-			this.counterDocument = counterDocument;
+			this.counterStorageDocument = counterStorageDocument;
 			this.backupSourceDirectory = backupSourceDirectory;
-			backupFilename = counterDocument.Id + ".Voron.Backup";
+			backupFilename = counterStorageDocument.Id + ".Voron.Backup";
 
 			if (incrementalBackup)
 				PrepareForIncrementalBackup();
@@ -44,10 +44,12 @@ namespace Raven.Database.Counters.Backup
 		{
 			try
 			{
-				_log.Info("Starting backup of '{0}' to '{1}'", backupSourceDirectory, backupDestinationDirectory);
+				Log.Info("Starting backup of '{0}' to '{1}'", backupSourceDirectory, backupDestinationDirectory);
 				UpdateBackupStatus(
 					string.Format("Started backup process. Backing up data to directory = '{0}'",
 								  backupDestinationDirectory), null, BackupStatus.BackupMessageSeverity.Informational);
+
+				UpdateBackupStatus("Executing data backup..", null, BackupStatus.BackupMessageSeverity.Informational);
 
 				if (incrementalBackup)
 				{
@@ -57,12 +59,30 @@ namespace Raven.Database.Counters.Backup
 					BackupMethods.Incremental.ToFile(env, Path.Combine(backupDestinationIncrementalDirectory, backupFilename),
 						infoNotify: s => UpdateBackupStatus(s, null, BackupStatus.BackupMessageSeverity.Informational));
 				}
+				else if (Directory.Exists(backupDestinationDirectory))
+				{
+					throw new InvalidOperationException("Denying request to perform a full backup to an existing backup folder! Try doing an incremental backup instead.");
+				}
 				else
 				{
 					EnsureBackupDestinationExists();
 					BackupMethods.Full.ToFile(env, Path.Combine(backupDestinationDirectory, backupFilename),
 						infoNotify: s => UpdateBackupStatus(s, null, BackupStatus.BackupMessageSeverity.Informational));
 				}
+
+				if (counterStorageDocument != null)
+					File.WriteAllText(Path.Combine(backupDestinationDirectory, Constants.Counter.BackupDocumentFileName), RavenJObject.FromObject(counterStorageDocument).ToString());
+			}
+			catch (AggregateException e)
+			{
+				var ne = e.ExtractSingleInnerException();
+				Log.ErrorException("Failed to complete backup", ne);
+				UpdateBackupStatus("Failed to complete backup because: " + ne.Message, ne.ExceptionToString(null), BackupStatus.BackupMessageSeverity.Error);
+			}
+			catch (Exception e)
+			{
+				Log.ErrorException("Failed to complete backup", e);
+				UpdateBackupStatus("Failed to complete backup because: " + e.Message, e.ExceptionToString(null), BackupStatus.BackupMessageSeverity.Error);
 			}
 			finally
 			{
@@ -89,7 +109,7 @@ namespace Raven.Database.Counters.Backup
 				var state = new IncrementalBackupState()
 				{
 					ResourceId = storage.ServerId,
-					ResourceName = counterDocument.Id
+					ResourceName = counterStorageDocument.Id
 				};
 
 				File.WriteAllText(incrementalBackupState, RavenJObject.FromObject(state).ToString());
@@ -115,7 +135,7 @@ namespace Raven.Database.Counters.Backup
 		{
 			try
 			{
-				_log.Info("Backup completed");
+				Log.Info("Backup completed");
 				var backupStatus = GetBackupStatus();
 				if (backupStatus == null)
 					return;
@@ -126,14 +146,14 @@ namespace Raven.Database.Counters.Backup
 			}
 			catch (Exception e)
 			{
-				_log.WarnException("Failed to update completed backup status, will try deleting backup status", e);
+				Log.WarnException("Failed to update completed backup status, will try deleting backup status", e);
 				try
 				{
 					DeleteBackupStatus();
 				}
 				catch (Exception ex)
 				{
-					_log.WarnException("Failed to remove backup status", ex);
+					Log.WarnException("Failed to remove backup status", ex);
 				}
 			}
 		}
@@ -142,7 +162,7 @@ namespace Raven.Database.Counters.Backup
 		{
 			try
 			{
-				_log.Info(newMsg);
+				Log.Info(newMsg);
 				var backupStatus = GetBackupStatus();
 				if (backupStatus == null)
 					return;
@@ -158,7 +178,7 @@ namespace Raven.Database.Counters.Backup
 			}
 			catch (Exception e)
 			{
-				_log.WarnException("Failed to update backup status", e);
+				Log.WarnException("Failed to update backup status", e);
 			}
 		}
 
@@ -175,6 +195,7 @@ namespace Raven.Database.Counters.Backup
 			using (var writer = storage.CreateWriter())
 			{
 				writer.SaveBackupStatus(backupStatus);
+				writer.Commit();
 			}
 		}
 
@@ -183,6 +204,7 @@ namespace Raven.Database.Counters.Backup
 			using (var writer = storage.CreateWriter())
 			{
 				writer.DeleteBackupStatus();
+				writer.Commit();
 			}
 		}
 

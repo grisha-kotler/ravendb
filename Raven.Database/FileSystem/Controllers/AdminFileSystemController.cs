@@ -453,8 +453,8 @@ namespace Raven.Database.FileSystem.Controllers
             if (string.IsNullOrWhiteSpace(filesystemName))
             {
                 var errorMessage = (filesystemDocument == null || String.IsNullOrWhiteSpace(filesystemDocument.Id))
-                                ? Constants.FilesystemDocumentFilename +  " file is invalid - filesystem name was not found and not supplied in the request (Id property is missing or null). This is probably a bug - should never happen."
-                                : "A filesystem name must be supplied if the restore location does not contain a valid " + Constants.FilesystemDocumentFilename + " file";
+                                ? Constants.FileSystem.BackupDocumentFileName +  " file is invalid - filesystem name was not found and not supplied in the request (Id property is missing or null). This is probably a bug - should never happen."
+								: "A filesystem name must be supplied if the restore location does not contain a valid " + Constants.FileSystem.BackupDocumentFileName + " file";
 
                 restoreStatus.Messages.Add(errorMessage);
                 DatabasesLandlord.SystemDatabase.Documents.Put(RestoreStatus.RavenFilesystemRestoreStatusDocumentKey(filesystemName), null, RavenJObject.FromObject(new { restoreStatus }), new RavenJObject(), null);
@@ -595,10 +595,10 @@ namespace Raven.Database.FileSystem.Controllers
             // try to find newest filesystem document in incremental backups first - to have the most recent version (if available)
             var backupPath = Directory.GetDirectories(rootBackupPath, "Inc*")
                                        .OrderByDescending(dir => dir)
-                                       .Select(dir => Path.Combine(dir, Constants.FilesystemDocumentFilename))
+									   .Select(dir => Path.Combine(dir, Constants.FileSystem.BackupDocumentFileName))
                                        .FirstOrDefault();
 
-            return backupPath ?? Path.Combine(rootBackupPath, Constants.FilesystemDocumentFilename);
+			return backupPath ?? Path.Combine(rootBackupPath, Constants.FileSystem.BackupDocumentFileName);
         }
 
         private string ResolveTenantDataDirectory(string filesystemLocation, string filesystemName, out string documentDataDir)

@@ -1,6 +1,6 @@
 import commandBase = require("commands/commandBase");
 import counterStorage = require("models/counter/counterStorage");
-import getConfigurationByKeyCommand = require("commands/filesystem/getConfigurationByKeyCommand");
+import getCounterBackupStatus = require("commands/counter/getCounterBackupStatus");
 
 class backupFilesystemCommand extends commandBase {
 
@@ -15,7 +15,7 @@ class backupFilesystemCommand extends commandBase {
                     BackupLocation: this.backupLocation,
                     DatabaseDocument: null
                 };
-        this.post('/admin/backup?incremental=' + this.incremental, JSON.stringify(args), this.cs, { dataType: 'text' })
+        this.post("/admin/backup?incremental=" + this.incremental, JSON.stringify(args), this.cs, { dataType: 'text' })
             .fail((response: JQueryXHR) => {
                 this.reportError("Failed to create backup!", response.responseText, response.statusText);
                 result.reject();
@@ -26,14 +26,13 @@ class backupFilesystemCommand extends commandBase {
     }
 
     private getBackupStatus(result: JQueryDeferred<any>) {
-        /*new getConfigurationByKeyCommand(this.cs, "Raven/Backup/Status")
+        new getCounterBackupStatus(this.cs)
             .execute()
             .fail((response: JQueryXHR) => {
                 this.reportError("Failed to fetch backup status!", response.responseText, response.statusText);
                 result.reject();
             })
-            .done((backupStatusAsString: string) => {
-                var backupStatus: backupStatusDto = JSON.parse(backupStatusAsString);
+            .done((backupStatus: backupStatusDto) => {
                 this.updateBackupStatus(backupStatus);
                 if (backupStatus.IsRunning) {
                     setTimeout(() => this.getBackupStatus(result), 1000);
@@ -41,7 +40,7 @@ class backupFilesystemCommand extends commandBase {
                     this.reportSuccess("Counter Storage backup was successfully created!");
                     result.resolve();
                 }
-            });*/
+            });
     }
 }
 

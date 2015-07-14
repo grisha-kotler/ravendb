@@ -62,6 +62,7 @@ namespace Raven.Client.Counters
 				}, Name).ConfigureAwait(false).GetAwaiter().GetResult();
 			}			
 
+			//need replication informer for each counter store?
 			replicationInformer = new CounterReplicationInformer(JsonRequestFactory, this, CountersConvention); // make sure it is initialized
 		}
 

@@ -303,6 +303,7 @@ namespace Raven.Database.Counters.Controllers
 					Started = SystemTime.UtcNow,
 					IsRunning = true,
 				});
+				writer.Commit();
 			}
 
 			var backupOperation = new BackupOperation(Storage, DatabasesLandlord.SystemDatabase.Configuration.DataDirectory,

@@ -268,7 +268,7 @@ namespace Raven.Abstractions.Data
 
 		public const string DatabaseDocumentFilename = "Database.Document";
 
-		public const string FilesystemDocumentFilename = "Filesystem.Document";
+		
 
 	    public const string IncrementalBackupAlertTimeout = "Raven/IncrementalBackup/AlertTimeoutHours";
 
@@ -287,6 +287,8 @@ namespace Raven.Abstractions.Data
 			public const string DataDirectory = "Raven/Databases/DataDir";
 
 			public const string UrlPrefix = "databases";
+
+
 		}
 		
 		//File System
@@ -305,7 +307,10 @@ namespace Raven.Abstractions.Data
 	        public const string UrlPrefix = "fs";
 
 	        public const string RavenFsSize = "RavenFS-Size";
+
             public const string PreventSchemaUpdate = "Raven/PreventSchemaUpdate";
+
+			public const string BackupDocumentFileName = "FileSystem.Document";
 
 	        public static class Versioning
 	        {
@@ -325,6 +330,8 @@ namespace Raven.Abstractions.Data
 			public const string DeletedTombstonesInBatch = "Raven/Counter/DeletedTombstonesInBatch";
 
 			public const string UrlPrefix = "cs";
+
+			public const string BackupDocumentFileName = "CounterStorage.Document";
 		}
 
 		//Time Series

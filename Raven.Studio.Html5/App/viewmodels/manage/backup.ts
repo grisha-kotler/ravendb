@@ -31,8 +31,8 @@ class resourceBackup {
             var foundRs = this.resources().first((rs: resource) => newResourceName === rs.name && rs.type === this.type);
 
             if (!foundRs && newResourceName.length > 0) {
-	            var tenantType = foundRs.fullTypeName;
-                errorMessage = tenantType + " name doesn't exist!";
+	            var typeName = this.resources()[0].fullTypeName;
+                errorMessage = typeName + " name doesn't exist!";
             }
 
             return errorMessage;
@@ -46,6 +46,9 @@ class backupDatabase extends viewModelBase {
     private fsBackupOptions = new resourceBackup(TenantType.FileSystem, shell.fileSystems);
 	private csBackupOptions = new resourceBackup(TenantType.CounterStorage, shell.counterStorages);
     
+	fsExists = ko.computed(() => shell.fileSystems().length > 0);
+	csExists = ko.computed(() => shell.counterStorages().length > 0);
+
     canActivate(args): any {
         return true;
     }

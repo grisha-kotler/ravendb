@@ -410,6 +410,18 @@ namespace Raven.Database.Counters.Controllers
             }
 		}
 
+		[RavenRoute("cs/{counterStorageName}/backup-status")]
+		[HttpGet]
+		public HttpResponseMessage GetCounterBackupStatus()
+		{
+			Storage.MetricsCounters.ClientRequests.Mark();
+			using (var reader = Storage.CreateReader())
+			{
+				var backupStatus = reader.GetBackupStatus();
+				return GetMessageWithObject(backupStatus);
+			}
+		}
+
 		private static void AssertName(string name)
 		{
 			if (string.IsNullOrEmpty(name))

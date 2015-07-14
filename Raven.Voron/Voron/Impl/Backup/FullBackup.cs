@@ -10,8 +10,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Text;
 using Voron.Impl.FileHeaders;
 using Voron.Impl.Journal;
 using Voron.Impl.Paging;
@@ -140,7 +139,7 @@ namespace Voron.Impl.Backup
 				if (txr != null)
 					txr.Dispose();
 			}
-			infoNotify(string.Format("Voron backup db finished"));
+			infoNotify(string.Format("Voron backup finished"));
 		}
 
 		public void Restore(string backupPath, string voronDataDir, string journalDir = null)
@@ -153,7 +152,7 @@ namespace Voron.Impl.Backup
 			if (Directory.Exists(journalDir) == false)
 				Directory.CreateDirectory(journalDir);
 
-			using (var zip = ZipFile.Open(backupPath,ZipArchiveMode.Read, System.Text.Encoding.UTF8))
+			using (var zip = ZipFile.Open(backupPath,ZipArchiveMode.Read, Encoding.UTF8))
 			{
 				foreach (var entry in zip.Entries)
 				{

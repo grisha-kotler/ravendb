@@ -11,7 +11,7 @@ class getCountersCommand extends commandBase {
     * @param take - number of entries to take
     * @param counterGroupName - the counter group to take the entries from
     */
-    constructor(private cs: counterStorage, private skip: number, private take: number, private group: string = null) {
+    constructor(private cs: counterStorage, private skip: number, private take: number, private resultCount: number, private group: string = null) {
         super();
     }
 
@@ -26,7 +26,7 @@ class getCountersCommand extends commandBase {
         var doneTask = $.Deferred();
         var selector = (dtos: counterSummaryDto[]) => dtos.map(d => new counterSummary(d));
         var task = this.query(url, args, this.cs, selector);
-        task.done((summaries: counterSummary[]) => doneTask.resolve(new pagedResultSet(summaries, summaries.length)));
+        task.done((summaries: counterSummary[]) => doneTask.resolve(new pagedResultSet(summaries, this.resultCount)));
         task.fail(xhr => doneTask.reject(xhr));
         return doneTask;
     }
