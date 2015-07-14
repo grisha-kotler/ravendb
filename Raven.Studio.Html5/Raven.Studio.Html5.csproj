@@ -24,6 +24,13 @@
     <TypeScriptCompile Include="App\commands\counter\backupCounterStorageCommand.ts" />
     <TypeScriptCompile Include="App\commands\counter\deleteCountersByGroupCommand.ts" />
     <TypeScriptCompile Include="App\commands\counter\deleteCountersCommand.ts" />
+    <TypeScriptCompile Include="App\commands\database\documents\generateClassCommand.ts" />
+    <TypeScriptCompile Include="App\commands\database\index\forceIndexReplace.ts" />
+    <TypeScriptCompile Include="App\commands\database\replication\enableReplicationCommand.ts" />
+    <TypeScriptCompile Include="App\commands\database\replication\conflictsResolveCommand.ts" />
+    <TypeScriptCompile Include="App\commands\database\studio\checkEncryptionKey.ts" />
+    <TypeScriptCompile Include="App\commands\filesystem\backupFilesystemCommand.ts" />
+    <TypeScriptCompile Include="App\commands\filesystem\createDefaultSettingsCommand.ts" />
     <TypeScriptCompile Include="App\commands\counter\deleteCounterStorageCommand.ts" />
     <TypeScriptCompile Include="App\commands\counter\getCounterStorageReplicationCommand.ts" />
     <TypeScriptCompile Include="App\commands\counter\getCounterStoragesCommand.ts" />
@@ -87,6 +94,7 @@
     <TypeScriptCompile Include="App\commands\counter\getCounterCommand.ts" />
     <TypeScriptCompile Include="App\commands\counter\getCountersCommand.ts" />
     <TypeScriptCompile Include="App\common\alertType.ts" />
+    <TypeScriptCompile Include="App\common\serverSmugglingLocalStorage.ts" />
     <TypeScriptCompile Include="App\common\appUrl.ts" />
     <TypeScriptCompile Include="App\common\changesApiSharedConnection.ts" />
     <TypeScriptCompile Include="App\common\cssGenerator.ts" />
@@ -263,7 +271,6 @@
     <Content Include="App\views\database\settings\sqlReplicationConnectionStringsManagement.html" />
     <Content Include="App\views\database\settings\sqlReplications.html" />
     <Content Include="App\views\database\settings\versioning.html" />
-    <Content Include="App\views\database\status\alerts.html" />
     <Content Include="App\views\database\status\alerts.html" />
     <Content Include="App\views\database\status\debug\statusDebug.html" />
     <Content Include="App\views\database\status\debug\statusDebugChanges.html" />
