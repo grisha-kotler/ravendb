@@ -7,31 +7,25 @@ using Raven.Database.Extensions;
 using Voron;
 using Voron.Impl.Backup;
 
-namespace Raven.Database.Counters.Backup
+namespace Raven.Database.Counters.Storage
 {
 	public class RestoreOperation
 	{
-
 		private static readonly ILog log = LogManager.GetCurrentClassLogger();
-
 		private readonly Action<string> output;
-
 		private readonly string backupPath;
-
-		private readonly CounterRestoreRequest restoreRequest;
 		private readonly string restoreToPath;
 		private readonly string backupFilename;
 
 		public RestoreOperation(CounterRestoreRequest restoreRequest, Action<string> output)
 		{
-			this.restoreRequest = restoreRequest;
 			backupPath = restoreRequest.BackupLocation;
-			restoreToPath = this.restoreRequest.RestoreToLocation.ToFullPath();
+			restoreToPath = restoreRequest.RestoreToLocation.ToFullPath();
 			this.output = output;
 			backupFilename = string.Format("{0}.Voron.Backup", restoreRequest.Id);
 		}
 
-		public bool IsValidBackup()
+		private bool IsValidBackup()
 		{
 			return File.Exists(GetBackupFilenamePath());
 		}

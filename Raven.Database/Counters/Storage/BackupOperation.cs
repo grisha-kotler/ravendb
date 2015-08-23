@@ -12,66 +12,79 @@ using Raven.Json.Linq;
 using Voron;
 using Voron.Impl.Backup;
 
-namespace Raven.Database.Counters.Backup
+namespace Raven.Database.Counters.Storage
 {
-	public class BackupOperation
+	public class BackupOperation : BaseBackupOperation<CounterStorage, CounterStorageDocument>
 	{
-		private static readonly ILog Log = LogManager.GetCurrentClassLogger();
-		private readonly CounterStorage storage;
-		private readonly string backupDestinationDirectory;
-		private readonly StorageEnvironment env;
-		private readonly bool incrementalBackup;
-		private readonly CounterStorageDocument counterStorageDocument;
-
 		private readonly string backupFilename;
-		private readonly string backupSourceDirectory;
-
-		public BackupOperation(CounterStorage storage, string backupSourceDirectory, string backupDestinationDirectory, StorageEnvironment env, bool incrementalBackup, CounterStorageDocument counterStorageDocument)
+		
+		public BackupOperation(CounterStorage counterStorage, CounterStorageDocument counterStorageDocument, StorageEnvironment env,
+			string backupSourceDirectory, string backupDestinationDirectory, bool incrementalBackup)
+			: base(counterStorage, counterStorageDocument, env, backupSourceDirectory, backupDestinationDirectory, incrementalBackup)
 		{
-			this.storage = storage;
-			this.backupDestinationDirectory = backupDestinationDirectory;
-			this.env = env;
-			this.incrementalBackup = incrementalBackup;
-			this.counterStorageDocument = counterStorageDocument;
-			this.backupSourceDirectory = backupSourceDirectory;
-			backupFilename = counterStorageDocument.Id + ".Voron.Backup";
+			backupFilename = Document.Id + ".Voron.Backup";
 
 			if (incrementalBackup)
 				PrepareForIncrementalBackup();
+		}
+
+		internal override sealed void PrepareForIncrementalBackup()
+		{
+			if (Directory.Exists(BackupDestinationDirectory) == false)
+				Directory.CreateDirectory(BackupDestinationDirectory);
+
+			var incrementalBackupState = Path.Combine(BackupDestinationDirectory, Constants.IncrementalBackupState);
+			if (File.Exists(incrementalBackupState))
+			{
+				var state = RavenJObject.Parse(File.ReadAllText(incrementalBackupState)).JsonDeserialization<IncrementalBackupState>();
+
+				if (state.ResourceId != ResourceStore.ServerId)
+					throw new InvalidOperationException(string.Format("Can't perform an incremental backup to a given folder because it already contains incremental backup data of different counter storage. Existing incremental data origins from '{0}' counter storage.", state.ResourceName));
+			}
+			else
+			{
+				var state = new IncrementalBackupState
+				{
+					ResourceId = ResourceStore.ServerId,
+					ResourceName = Document.Id
+				};
+
+				File.WriteAllText(incrementalBackupState, RavenJObject.FromObject(state).ToString());
+			}
 		}
 
 		public void Execute()
 		{
 			try
 			{
-				Log.Info("Starting backup of '{0}' to '{1}'", backupSourceDirectory, backupDestinationDirectory);
+				Log.Info("Starting backup of '{0}' to '{1}'", BackupSourceDirectory, BackupDestinationDirectory);
 				UpdateBackupStatus(
 					string.Format("Started backup process. Backing up data to directory = '{0}'",
-								  backupDestinationDirectory), null, BackupStatus.BackupMessageSeverity.Informational);
+								  BackupDestinationDirectory), null, BackupStatus.BackupMessageSeverity.Informational);
 
 				UpdateBackupStatus("Executing data backup..", null, BackupStatus.BackupMessageSeverity.Informational);
 
-				if (incrementalBackup)
+				if (IncrementalBackup)
 				{
 					var backupDestinationIncrementalDirectory = DirectoryForIncrementalBackup();
 					EnsureBackupDestinationExists(backupDestinationIncrementalDirectory);
 
-					BackupMethods.Incremental.ToFile(env, Path.Combine(backupDestinationIncrementalDirectory, backupFilename),
+					BackupMethods.Incremental.ToFile(StorageEnvironment, Path.Combine(backupDestinationIncrementalDirectory, backupFilename),
 						infoNotify: s => UpdateBackupStatus(s, null, BackupStatus.BackupMessageSeverity.Informational));
 				}
-				else if (Directory.Exists(backupDestinationDirectory))
+				else if (BackupAlreadyExists)
 				{
 					throw new InvalidOperationException("Denying request to perform a full backup to an existing backup folder! Try doing an incremental backup instead.");
 				}
 				else
 				{
 					EnsureBackupDestinationExists();
-					BackupMethods.Full.ToFile(env, Path.Combine(backupDestinationDirectory, backupFilename),
+					BackupMethods.Full.ToFile(StorageEnvironment, Path.Combine(BackupDestinationDirectory, backupFilename),
 						infoNotify: s => UpdateBackupStatus(s, null, BackupStatus.BackupMessageSeverity.Informational));
 				}
 
-				if (counterStorageDocument != null)
-					File.WriteAllText(Path.Combine(backupDestinationDirectory, Constants.Counter.BackupDocumentFileName), RavenJObject.FromObject(counterStorageDocument).ToString());
+				if (Document != null)
+					File.WriteAllText(Path.Combine(BackupDestinationDirectory, Constants.Counter.BackupDocumentFileName), RavenJObject.FromObject(Document).ToString());
 			}
 			catch (AggregateException e)
 			{
@@ -90,38 +103,12 @@ namespace Raven.Database.Counters.Backup
 			}
 		}
 
-		private void PrepareForIncrementalBackup()
-		{
-			if (Directory.Exists(backupDestinationDirectory) == false)
-				Directory.CreateDirectory(backupDestinationDirectory);
-
-			var incrementalBackupState = Path.Combine(backupDestinationDirectory, Constants.IncrementalBackupState);
-
-			if (File.Exists(incrementalBackupState))
-			{
-				var state = RavenJObject.Parse(File.ReadAllText(incrementalBackupState)).JsonDeserialization<IncrementalBackupState>();
-
-				if (state.ResourceId != storage.ServerId)
-					throw new InvalidOperationException(string.Format("Can't perform an incremental backup to a given folder because it already contains incremental backup data of different database. Existing incremental data origins from '{0}' database.", state.ResourceName));
-			}
-			else
-			{
-				var state = new IncrementalBackupState()
-				{
-					ResourceId = storage.ServerId,
-					ResourceName = counterStorageDocument.Id
-				};
-
-				File.WriteAllText(incrementalBackupState, RavenJObject.FromObject(state).ToString());
-			}
-		}
-
 		private string DirectoryForIncrementalBackup()
 		{
 			while (true)
 			{
 				var incrementalTag = SystemTime.UtcNow.ToString("Inc yyyy-MM-dd HH-mm-ss");
-				var backupDirectory = Path.Combine(backupDestinationDirectory, incrementalTag);
+				var backupDirectory = Path.Combine(BackupDestinationDirectory, incrementalTag);
 
 				if (Directory.Exists(backupDirectory) == false)
 				{
@@ -131,7 +118,7 @@ namespace Raven.Database.Counters.Backup
 			}
 		}
 
-		private void CompleteBackup()
+		internal override void CompleteBackup()
 		{
 			try
 			{
@@ -182,26 +169,26 @@ namespace Raven.Database.Counters.Backup
 			}
 		}
 
-		private BackupStatus GetBackupStatus()
+		internal override BackupStatus GetBackupStatus()
 		{
-			using (var reader = storage.CreateReader())
+			using (var reader = ResourceStore.CreateReader())
 			{
 				return reader.GetBackupStatus();
 			}
 		}
 
-		private void SetBackupStatus(BackupStatus backupStatus)
+		internal override void SetBackupStatus(BackupStatus backupStatus)
 		{
-			using (var writer = storage.CreateWriter())
+			using (var writer = ResourceStore.CreateWriter())
 			{
 				writer.SaveBackupStatus(backupStatus);
 				writer.Commit();
 			}
 		}
 
-		private void DeleteBackupStatus()
+		internal override void DeleteBackupStatus()
 		{
-			using (var writer = storage.CreateWriter())
+			using (var writer = ResourceStore.CreateWriter())
 			{
 				writer.DeleteBackupStatus();
 				writer.Commit();
@@ -210,7 +197,7 @@ namespace Raven.Database.Counters.Backup
 
 		private void EnsureBackupDestinationExists(string backupDestination = null)
 		{
-			var path = backupDestination ?? backupDestinationDirectory;
+			var path = backupDestination ?? BackupDestinationDirectory;
 			if (Directory.Exists(path))
 			{
 				var writeTestFile = Path.Combine(path, "write-permission-test");
@@ -228,9 +215,9 @@ namespace Raven.Database.Counters.Backup
 				Directory.CreateDirectory(path); // will throw UnauthorizedAccessException if a user doesn't have write permission
 		}
 
-		public bool BackupAlreadyExists
+		protected override bool BackupAlreadyExists
 		{
-			get { return Directory.Exists(backupDestinationDirectory) && File.Exists(Path.Combine(backupDestinationDirectory.Trim(), backupFilename)); }
+			get { return Directory.Exists(BackupDestinationDirectory) && File.Exists(Path.Combine(BackupDestinationDirectory.Trim(), backupFilename)); }
 		}
 	}
 }

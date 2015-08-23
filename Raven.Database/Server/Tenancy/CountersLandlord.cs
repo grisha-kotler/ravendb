@@ -259,7 +259,7 @@ namespace Raven.Database.Server.Tenancy
 		}
 
 
-		public async Task<CounterStorage> GetCounterInternal(string name)
+		public async Task<CounterStorage> GetCounterStorageInternal(string name)
 		{
 			Task<CounterStorage> cs;
 			if (TryGetOrCreateResourceStore(name, out cs))

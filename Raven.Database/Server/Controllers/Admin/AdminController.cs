@@ -389,7 +389,6 @@ namespace Raven.Database.Server.Controllers.Admin
 				Payload = "Restoring database " + databaseName + " from " + restoreRequest.BackupLocation
 			}, out id);
 
-
 			return GetMessageWithObject(new
 			{
 				OperationId = id

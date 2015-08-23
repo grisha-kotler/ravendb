@@ -5,7 +5,7 @@ using System.Threading;
 using Raven.Abstractions.Counters;
 using Raven.Database.Config;
 using Raven.Database.Counters;
-using Raven.Database.Counters.Backup;
+using Raven.Database.Counters.Storage;
 using Raven.Database.Extensions;
 using Raven.Database.Server;
 using Raven.Tests.Helpers.Util;
@@ -161,14 +161,15 @@ namespace Raven.Tests.Counters
 		protected BackupOperation NewBackupOperation(bool isIncremental)
 		{
 			return new BackupOperation(storage,
-				config.Counter.DataDirectory,
-				BackupDestinationDirectory,
-				storage.Environment,
-				isIncremental,
 				new CounterStorageDocument
 				{
 					Id = CounterStorageId
-				});
+				},
+				storage.Environment,
+				config.Counter.DataDirectory,
+				BackupDestinationDirectory,
+				isIncremental
+				);
 		}
 
 		protected RestoreOperation NewRestoreOperation()

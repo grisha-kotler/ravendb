@@ -10,6 +10,7 @@ namespace Raven.Database.Storage
 	public class IncrementalBackupState
 	{
 		public Guid ResourceId { get; set; }
+
 		public string ResourceName { get; set; }
 	}
 }

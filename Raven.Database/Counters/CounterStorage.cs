@@ -15,6 +15,7 @@ using Raven.Abstractions.Util;
 using Raven.Database.Config;
 using Raven.Database.Counters.Controllers;
 using Raven.Database.Counters.Notifications;
+using Raven.Database.Counters.Storage;
 using Raven.Database.Extensions;
 using Raven.Database.Impl;
 using Raven.Database.Server.Abstractions;
@@ -83,9 +84,10 @@ namespace Raven.Database.Counters
 			ExtensionsState = new AtomicDictionary<object>();
 			jsonSerializer = new JsonSerializer();
 			sizeOfGuid = sizeof(Guid);
+			MaintananceActions = new MaintananceActions(this);
 
 			Initialize();
-			//purgeTombstonesTimer = new Timer(BackgroundActionsCallback, null, TimeSpan.Zero, TimeSpan.FromHours(1));
+			//TODO: uncomment: purgeTombstonesTimer = new Timer(BackgroundActionsCallback, null, TimeSpan.Zero, TimeSpan.FromHours(1));
 		}
 
 		private void Initialize()
@@ -193,6 +195,8 @@ namespace Raven.Database.Counters
 		{
 			get { return jsonSerializer; }
 		}
+
+		public IMaintananceActions MaintananceActions { get; private set; } 
 
 		public AtomicDictionary<object> ExtensionsState { get; private set; }
 

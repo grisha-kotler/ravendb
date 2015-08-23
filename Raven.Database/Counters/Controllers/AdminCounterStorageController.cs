@@ -9,15 +9,18 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Http;
 using System.Web.Http.Controllers;
 using System.Web.Http.Routing;
+using Mono.CSharp;
 using Raven.Abstractions;
 using Raven.Abstractions.Counters;
 using Raven.Abstractions.Data;
 using Raven.Abstractions.Extensions;
-using Raven.Database.Counters.Backup;
+using Raven.Abstractions.Util;
+using Raven.Database.Actions;
 using Raven.Database.Extensions;
 using Raven.Database.Server.Controllers.Admin;
 using Raven.Database.Server.Security;
@@ -56,7 +59,7 @@ namespace Raven.Database.Counters.Controllers
 				if (string.IsNullOrWhiteSpace(CounterStorageName))
 					throw new InvalidOperationException("Could not find counter storage name in path.. maybe it is missing or the request URL is malformed?");
 
-				var counterStorage = CountersLandlord.GetCounterInternal(CounterStorageName);
+				var counterStorage = CountersLandlord.GetCounterStorageInternal(CounterStorageName);
 				if (counterStorage == null)
 				{
 					throw new InvalidOperationException("Could not find a counter storage named: " + CounterStorageName);
@@ -127,7 +130,7 @@ namespace Raven.Database.Counters.Controllers
 			    }, HttpStatusCode.BadRequest);
 		    }
 		    
-		    var counterStorage = await CountersLandlord.GetCounterInternal(id);
+		    var counterStorage = await CountersLandlord.GetCounterStorageInternal(id);
 		    if (counterStorage == null)
 		    {
 			    return GetMessageWithObject(new
@@ -296,25 +299,114 @@ namespace Raven.Database.Counters.Controllers
 				throw new InvalidOperationException("In order to run incremental backups using Voron you must have the appropriate setting key (Raven/Voron/AllowIncrementalBackups) set to true");
 			}
 
-			using (var writer = Storage.CreateWriter())
+			CancellationTokenSource cts = new CancellationTokenSource();
+			var task = Task.Factory.StartNew(() =>
 			{
-				writer.SaveBackupStatus(new BackupStatus
+				try
 				{
-					Started = SystemTime.UtcNow,
-					IsRunning = true,
-				});
-				writer.Commit();
-			}
+					Storage.MaintananceActions.StartBackupOperation(backupRequest.CounterStorageDocument,
+						CountersLandlord.SystemConfiguration.Counter.DataDirectory,
+						backupRequest.BackupLocation,
+						incrementalBackup);
+				}
+				catch (Exception e)
+				{
 
-			var backupOperation = new BackupOperation(Storage, DatabasesLandlord.SystemDatabase.Configuration.DataDirectory,
-				backupRequest.BackupLocation, Storage.Environment, incrementalBackup, backupRequest.CounterStorageDocument);
-
-			Task.Factory.StartNew(() =>
+				}
+				finally
+				{
+					
+				}
+			}, cts.Token);
+			
+			long id;
+			Database.Tasks.AddTask(task, new TaskBasedOperationState(task), new TaskActions.PendingTaskDescription
 			{
-				backupOperation.Execute();
+				StartTime = SystemTime.UtcNow,
+				TaskType = TaskActions.PendingTaskType.BackupCounterStorage,
+				Payload = "Backingup counter storage " + CounterStorageName + " from " + backupRequest.BackupLocation,
+			}, out id, cts);
+
+			return GetMessageWithObject(new
+			{
+				OperationId = id
+			});
+		}
+
+		[HttpPost]
+		[RavenRoute("cs/admin/compact")]
+		public HttpResponseMessage Compact()
+		{
+			/*var cs = InnerRequest.RequestUri.ParseQueryString()["counterStorageName"];
+			if (string.IsNullOrWhiteSpace(cs))
+				return GetMessageWithString("Compact request requires a valid filesystem parameter", HttpStatusCode.BadRequest);
+
+			var configuration = CountersLandlord.CreateTenantConfiguration(cs);
+			if (configuration == null)
+				return GetMessageWithString("No counter storage named: " + cs, HttpStatusCode.NotFound);
+
+			var task = Task.Factory.StartNew(() =>
+			{
+				var compactStatus = new CompactStatus { State = CompactStatusState.Running, Messages = new List<string>() };
+				var compactDocKey = CompactStatus.RavenCounterStoageCompactStatusDocumentKey(cs);
+				DatabasesLandlord.SystemDatabase.Documents.Delete(compactDocKey, null, null);
+				try
+				{
+					// as we perform compact async we don't catch exceptions here - they will be propagated to operation
+					var targetFs = AsyncHelpers.RunSync(() => CountersLandlord.GetCounterStorageInternal(cs));
+					CountersLandlord.Lock(CounterStorageName, () => targetFs.Storage.Compact(configuration, msg =>
+					{
+						bool skipProgressReport = false;
+						bool isProgressReport = false;
+						if (IsUpdateMessage(msg))
+						{
+							isProgressReport = true;
+							var now = SystemTime.UtcNow;
+							compactStatus.LastProgressMessageTime = compactStatus.LastProgressMessageTime ?? DateTime.MinValue;
+							var timeFromLastUpdate = (now - compactStatus.LastProgressMessageTime.Value);
+							if (timeFromLastUpdate >= ReportProgressInterval)
+							{
+								compactStatus.LastProgressMessageTime = now;
+								compactStatus.LastProgressMessage = msg;
+							}
+							else skipProgressReport = true;
+
+						}
+						if (!skipProgressReport)
+						{
+							if (!isProgressReport) compactStatus.Messages.Add(msg);
+							DatabasesLandlord.SystemDatabase.Documents.Put(compactDocKey, null,
+								RavenJObject.FromObject(compactStatus), new RavenJObject(), null);
+						}
+					}));
+					compactStatus.State = CompactStatusState.Completed;
+					compactStatus.Messages.Add("Counter storage compaction completed!");
+					DatabasesLandlord.SystemDatabase.Documents.Put(compactDocKey, null,
+						RavenJObject.FromObject(compactStatus), new RavenJObject(), null);
+				}
+				catch (Exception e)
+				{
+					compactStatus.Messages.Add("Unable to compact counter storage " + e.Message);
+					compactStatus.State = CompactStatusState.Faulted;
+					DatabasesLandlord.SystemDatabase.Documents.Put(compactDocKey, null,
+																	   RavenJObject.FromObject(compactStatus), new RavenJObject(), null);
+					throw;
+				}
+				return GetEmptyMessage();
 			});
 
-			return GetEmptyMessage(HttpStatusCode.Created);
+			long id;
+			Database.Tasks.AddTask(task, new TaskBasedOperationState(task), new TaskActions.PendingTaskDescription
+			{
+				StartTime = SystemTime.UtcNow,
+				TaskType = TaskActions.PendingTaskType.CompactCounterStorage,
+				Payload = "Compact counter storage " + CounterStorageName,
+			}, out id);*/
+
+			return GetMessageWithObject(new
+			{
+				OperationId = "3"
+			});
 		}
     }
 }

@@ -25,7 +25,7 @@ namespace Raven.Abstractions.Data
 
 		public static string RavenCounterStoageCompactStatusDocumentKey(string counterStorageName)
 		{
-			return "Raven/Counter/Compact/Status/" + counterStorageName;
+			return "Raven/CounterStorage/Compact/Status/" + counterStorageName;
 		}
     }
 

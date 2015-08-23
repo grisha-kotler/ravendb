@@ -52,7 +52,7 @@ namespace Raven.Database.Counters.Controllers
 		        if (string.IsNullOrWhiteSpace(CounterStorageName))
 			        throw new InvalidOperationException("Could not find counter storage name in path.. maybe it is missing or the request URL is malformed?");
 
-		        var counterStorage = CountersLandlord.GetCounterInternal(CounterStorageName);
+		        var counterStorage = CountersLandlord.GetCounterStorageInternal(CounterStorageName);
                 if (counterStorage == null)
                 {
                     throw new InvalidOperationException("Could not find a counter storage named: " + CounterStorageName);
@@ -92,7 +92,7 @@ namespace Raven.Database.Counters.Controllers
             if (IsInternalRequest == false)
 				RequestManager.IncrementRequestCount();
 
-			var fileSystemInternal = await CountersLandlord.GetCounterInternal(CounterStorageName);
+			var fileSystemInternal = await CountersLandlord.GetCounterStorageInternal(CounterStorageName);
 			if (fileSystemInternal == null)
 			{
 				var msg = "Could not find a counters named: " + CounterStorageName;
@@ -249,7 +249,7 @@ namespace Raven.Database.Counters.Controllers
 		{
 			get
 			{
-				var counter = CountersLandlord.GetCounterInternal(CounterStorageName);
+				var counter = CountersLandlord.GetCounterStorageInternal(CounterStorageName);
 				if (counter == null)
 				{
 					throw new InvalidOperationException("Could not find a counter storage named: " + CounterStorageName);

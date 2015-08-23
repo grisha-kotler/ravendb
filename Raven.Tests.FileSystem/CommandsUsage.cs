@@ -577,7 +577,7 @@ namespace Raven.Tests.FileSystem
 
             await adminClient.CreateOrUpdateFileSystemAsync(new FileSystemDocument
             {
-                Id = "Raven/FileSystem/" + newFileSystemName,
+                Id = newFileSystemName,
                 Settings =
                  {
                      {Constants.FileSystem.DataDirectory, Path.Combine("~", Path.Combine("FileSystems", newFileSystemName))}
@@ -638,7 +638,7 @@ namespace Raven.Tests.FileSystem
 
             var fileSystemSpec = new FileSystemDocument
             {
-                Id = "Raven/FileSystem/" + newFileSystemName,
+                Id = newFileSystemName,
                 Settings =
                  {
                      {Constants.FileSystem.DataDirectory, Path.Combine("~", Path.Combine("FileSystems", newFileSystemName))}

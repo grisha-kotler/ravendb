@@ -155,6 +155,7 @@
     <Compile Include="Counters\CounterSummary.cs" />
     <Compile Include="Counters\CounterUtils.cs" />
     <Compile Include="Counters\CounterView.cs" />
+    <Compile Include="Data\IResourceDocument.cs" />
     <Compile Include="Counters\Notifications\BulkOperationNotification.cs" />
     <Compile Include="Counters\Notifications\ChangeNotification.cs" />
     <Compile Include="Counters\Notifications\CounterStorageNotification.cs" />
@@ -197,6 +198,7 @@
     <Compile Include="Data\ReducingBatchInfo.cs" />
     <Compile Include="Data\ReplicationInfoStatus.cs" />
     <Compile Include="Data\DatabaseRestoreRequest.cs" />
+    <Compile Include="Data\ResourceDocumentBase.cs" />
     <Compile Include="Data\RestoreInProgress.cs" />
     <Compile Include="Data\RestoreStatus.cs" />
     <Compile Include="Data\ScriptedIndexResults.cs" />

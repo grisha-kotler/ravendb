@@ -236,8 +236,11 @@
     <Compile Include="Actions\QueryActions.cs" />
     <Compile Include="Actions\SubscriptionActions.cs" />
     <Compile Include="Actions\TaskActions.cs" />
-    <Compile Include="Counters\Backup\BackupOperation.cs" />
-    <Compile Include="Counters\Backup\RestoreOperation.cs" />
+    <Compile Include="Counters\Storage\BackupOperation.cs" />
+    <Compile Include="Counters\Storage\BaseBackupOperation.cs" />
+    <Compile Include="Counters\Storage\MaintananceActions.cs" />
+    <Compile Include="Counters\Storage\RestoreOperation.cs" />
+    <Compile Include="Counters\Storage\IMaintananceActions.cs" />
     <Compile Include="GplexBuffers.cs" />
     <Compile Include="Indexing\LuceneAST.cs" />
     <Compile Include="JsConsole\AdminJsConsole.cs" />

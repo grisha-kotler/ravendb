@@ -50,7 +50,7 @@ namespace Raven.Database.FileSystem
 	    private readonly TransportState transportState;
         private readonly MetricsCountersManager metricsCounters;
 
-		private readonly Raven.Abstractions.Threading.ThreadLocal<bool> disableAllTriggers = new Raven.Abstractions.Threading.ThreadLocal<bool>(() => false);
+		private readonly Abstractions.Threading.ThreadLocal<bool> disableAllTriggers = new Abstractions.Threading.ThreadLocal<bool>(() => false);
 
 		private volatile bool disposed;
 

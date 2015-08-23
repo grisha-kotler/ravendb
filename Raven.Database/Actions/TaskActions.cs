@@ -186,13 +186,19 @@ namespace Raven.Database.Actions
 
 			ImportDatabase,
 
+			BackupCounterStorage,
+
 			RestoreDatabase,
 
-            RestoreFilesystem,
+            RestoreFileSystem,
+
+            RestoreCounterStorage,
 
             CompactDatabase,
 
-            CompactFilesystem,
+            CompactFileSystem,
+
+            CompactCounterStorage,
 
             IoTest,
 

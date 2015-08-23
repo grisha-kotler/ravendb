@@ -124,7 +124,7 @@ namespace Raven.Database.Server.Connections
 						activeResource = await fileSystemsLandlord.GetFileSystemInternal(resourcePath.Substring(FileSystemsUrlPrefix.Length + 2));
 						break;
 					case CountersUrlPrefix:
-						activeResource = await countersLandlord.GetCounterInternal(resourcePath.Substring(CountersUrlPrefix.Length + 2));
+						activeResource = await countersLandlord.GetCounterStorageInternal(resourcePath.Substring(CountersUrlPrefix.Length + 2));
 						break;
 					case TimeSeriesUrlPrefix:
 						activeResource = await timeSeriesLandlord.GetTimeSeriesInternal(resourcePath.Substring(TimeSeriesUrlPrefix.Length + 2));
