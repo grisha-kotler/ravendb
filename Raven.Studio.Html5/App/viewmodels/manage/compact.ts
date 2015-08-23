@@ -2,9 +2,11 @@
 import shell = require("viewmodels/shell");
 import database = require("models/resources/database");
 import resource = require("models/resources/resource");
-import filesystem = require("models/filesystem/filesystem");
+import fileSystem = require("models/filesystem/filesystem");
+import counterStorage = require("models/counter/counterStorage");
 import startDbCompactCommand = require("commands/maintenance/startCompactCommand");
 import startFsCompactCommand = require("commands/filesystem/startCompactCommand");
+import startCsCompactCommand = require("commands/counter/startCompactCommand");
 
 class resourceCompact {
     resourceName = ko.observable<string>('');
@@ -29,10 +31,11 @@ class resourceCompact {
         this.nameCustomValidityError = ko.computed(() => {
             var errorMessage: string = '';
             var newResourceName = this.resourceName();
-            var foundRs = this.resources().first((rs: resource) => newResourceName == rs.name);
+            var foundRs = this.resources().first((rs: resource) => newResourceName === rs.name);
 
             if (!foundRs && newResourceName.length > 0) {
-                errorMessage = (this.type == database.type ? "Database" : "File system") + " name doesn't exist!";
+				var typeName = this.resources()[0].fullTypeName;
+                errorMessage = typeName + " name doesn't exist!";
             }
 
             return errorMessage;
@@ -41,7 +44,7 @@ class resourceCompact {
 
     toggleKeepDown() {
         this.keepDown.toggle();
-        if (this.keepDown() == true) {
+        if (this.keepDown()) {
             var logsPre = document.getElementById(this.type + 'CompactLogPre');
             logsPre.scrollTop = logsPre.scrollHeight;
         }
@@ -51,16 +54,17 @@ class resourceCompact {
         this.compactStatusMessages(newCompactStatus.Messages);
         this.compactStatusLastUpdate(newCompactStatus.LastProgressMessage);
         if (this.keepDown()) {
-            var logsPre = document.getElementById(this.type + 'CompactLogPre');
+            var logsPre = document.getElementById(this.type + "CompactLogPre");
             logsPre.scrollTop = logsPre.scrollHeight;
         }
-        this.parent.isBusy(newCompactStatus.State == "Running");
+        this.parent.isBusy(newCompactStatus.State === "Running");
     }
 
 }
 class compact extends viewModelBase {
     private dbCompactOptions = new resourceCompact(this, database.type, shell.databases);
-    private fsCompactOptions = new resourceCompact(this, filesystem.type, shell.fileSystems);
+    private fsCompactOptions = new resourceCompact(this, fileSystem.type, shell.fileSystems);
+    private csCompactOptions = new resourceCompact(this, counterStorage.type, shell.fileSystems);
 
     isBusy = ko.observable<boolean>();
 
@@ -75,8 +79,8 @@ class compact extends viewModelBase {
 
     compositionComplete() {
         super.compositionComplete();
-        $('form :input[name="databaseName"]').on("keypress", (e) => e.which != 13);
-        $('form :input[name="filesystemName"]').on("keypress", (e) => e.which != 13);
+        $('form :input[name="databaseName"]').on("keypress", (e) => e.which !== 13);
+        $('form :input[name="filesystemName"]').on("keypress", (e) => e.which !== 13);
     }
 
     startDbCompact() {
@@ -92,6 +96,14 @@ class compact extends viewModelBase {
         var self = this;
 
         new startFsCompactCommand(this.fsCompactOptions.resourceName(), self.fsCompactOptions.updateCompactStatus.bind(self.fsCompactOptions))
+            .execute();
+    }
+	
+	startCsCompact() {
+        this.isBusy(true);
+        var self = this;
+
+        new startCsCompactCommand(this.csCompactOptions.resourceName(), self.csCompactOptions.updateCompactStatus.bind(self.csCompactOptions))
             .execute();
     }
 }

@@ -1,8 +1,8 @@
-import monitorCompactCommandBase = require("common/monitorCompactCommandBase");
+﻿import monitorCompactCommandBase = require("common/monitorCompactCommandBase");
 
 class monitorCompactCommand extends monitorCompactCommandBase {
 	constructor(parentPromise: JQueryDeferred<any>, dbName: string, updateCompactStatus: (compactStatusDto) => void) {
-        super(parentPromise, dbName, updateCompactStatus, "Raven/Database/Compact/Status/");
+        super(parentPromise, dbName, updateCompactStatus, "Raven/Counters/Compact/Status/");
     }
 }
 
