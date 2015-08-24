@@ -194,9 +194,9 @@ class row {
 		// see if this is a counter or counter group
 	    if (this.viewModel.isCounterView()) {
 		    switch(propertyName) {
-				case "Group":
+				case "Group Name":
 					return cell.counterGroupTemplate;
-				case "Name":
+				case "Counter Name":
 					return cell.counterNameTemplate;
 		    }
         }
