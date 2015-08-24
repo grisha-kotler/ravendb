@@ -28,8 +28,8 @@ class createEncryption extends dialogViewModelBase {
     }
 
     attached() {
+		super.attached();
         this.dialogSelectorName = "#CreateEncriptionDialog";
-        super.attached();
         var inputElement: any = $("#key")[0];
         this.key.subscribe((newKey) => {
             if (!this.base64Matcher.test(newKey.toString())) {

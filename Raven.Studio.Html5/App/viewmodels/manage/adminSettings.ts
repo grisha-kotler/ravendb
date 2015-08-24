@@ -2,7 +2,8 @@ import durandalRouter = require("plugins/router");
 import database = require("models/resources/database");
 import appUrl = require("common/appUrl");
 import viewModelBase = require("viewmodels/viewModelBase");
-
+import shell = require("viewmodels/shell");
+import license = require("models/auth/license");
 class adminSettings extends viewModelBase {
 
     router: DurandalRootRouter = null;
@@ -14,12 +15,6 @@ class adminSettings extends viewModelBase {
         super();
 
         this.docsForSystemUrl = appUrl.forDocuments(null, appUrl.getSystemDatabase());
-
-
-
-
-
-
 
 	    var licenseInformation = { route: 'admin/settings/licenseInformation', moduleId: 'viewmodels/manage/licenseInformation', title: 'License Information', nav: true, hash: appUrl.forLicenseInformation() };
         var apiKeyRoute = { route: ['admin/settings', 'admin/settings/apiKeys'], moduleId: 'viewmodels/manage/apiKeys', title: 'API Keys', nav: true, hash: appUrl.forApiKeys() };
@@ -34,27 +29,37 @@ class adminSettings extends viewModelBase {
         var trafficWatchRoute = { route: 'admin/settings/trafficWatch', moduleId: 'viewmodels/manage/trafficWatch', title: 'Traffic Watch', nav: true, hash: appUrl.forTrafficWatch() };
         var debugInfoRoute = { route: 'admin/settings/debugInfo', moduleId: 'viewmodels/manage/infoPackage', title: 'Gather Debug Info', nav: true, hash: appUrl.forDebugInfo() };
         var ioTestRoute = { route: 'admin/settings/ioTest', moduleId: 'viewmodels/manage/ioTest', title: 'IO Test', nav: true, hash: appUrl.forIoTest() };
+        var diskIoViewerRoute = { route: 'admin/settings/diskIoViewer', moduleId: 'viewmodels/manage/diskIoViewer', title: 'Disk IO Viewer', nav: true, hash: appUrl.forDiskIoViewer() };
 	    var consoleRoute = { route: 'admin/settings/console', moduleId: "viewmodels/manage/console", title: "Administator JS Console", nav: true, hash: appUrl.forAdminJsConsole() };
         var studioConfigRoute = { route: 'admin/settings/studioConfig', moduleId: 'viewmodels/manage/studioConfig', title: 'Studio Config', nav: true, hash: appUrl.forStudioConfig() };
+		var hotSpareRoute = { route: 'admin/settings/hotSpare', moduleId: 'viewmodels/manage/hotSpare', title: 'Hot Spare', nav: true, hash: appUrl.forHotSpare() };
+
+	    var routes = [
+		    apiKeyRoute,
+		    windowsAuthRoute,
+		    clusterRoute,
+		    globalConfigRoute,
+		    serverSmuggling,
+		    backupRoute,
+		    compactRoute,
+		    restoreRoute,
+		    adminLogsRoute,
+		    trafficWatchRoute,
+		    licenseInformation,
+		    debugInfoRoute,
+            ioTestRoute,
+            diskIoViewerRoute,
+		    consoleRoute,
+			studioConfigRoute
+	    ];
+	    if (license.licenseStatus().Attributes.hotSpare === "true")
+		    routes.push(hotSpareRoute);
+		if (!shell.has40Features()) {
+			routes.remove(clusterRoute);
+		}
 
         this.router = durandalRouter.createChildRouter()
-            .map([
-                apiKeyRoute,
-                windowsAuthRoute,
-                clusterRoute,
-                globalConfigRoute,
-				serverSmuggling,
-                backupRoute,
-                compactRoute,
-                restoreRoute,
-                adminLogsRoute,
-                trafficWatchRoute,
-				licenseInformation,
-                debugInfoRoute,
-				ioTestRoute,
-				consoleRoute,
-                studioConfigRoute
-            ])
+            .map(routes)
             .buildNavigationModel();
 
         adminSettings.adminSettingsRouter = this.router;

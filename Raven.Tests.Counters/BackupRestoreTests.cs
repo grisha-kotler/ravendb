@@ -163,7 +163,7 @@ namespace Raven.Tests.Counters
 			return new BackupOperation(storage,
 				new CounterStorageDocument
 				{
-					Id = CounterStorageId
+					StoreName = CounterStorageId
 				},
 				storage.Environment,
 				config.Counter.DataDirectory,

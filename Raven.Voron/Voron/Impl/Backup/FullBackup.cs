@@ -20,7 +20,6 @@ namespace Voron.Impl.Backup
 {
 	public unsafe class FullBackup
 	{
-
 		public void ToFile(StorageEnvironment env, string backupPath, CompressionLevel compression = CompressionLevel.Optimal,
 			Action<string> infoNotify = null,
 			Action backupStarted = null)

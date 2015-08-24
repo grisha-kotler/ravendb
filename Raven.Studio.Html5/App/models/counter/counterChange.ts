@@ -11,7 +11,7 @@
 
     constructor(dto: counterTotalDto, isNew: boolean = false) {
         this.value(dto.CurrentValue);
-        this.group(dto.Group);
+        this.group(dto.GroupName);
         this.counterName(dto.CounterName);
         this.delta("0");
         this.isNew(isNew);
@@ -41,7 +41,7 @@
     static empty(): counterChange {
         return new counterChange({
             CurrentValue: 0,
-            Group: "",
+            GroupName: "",
             CounterName: "",
             Delta: 0
         }, true);

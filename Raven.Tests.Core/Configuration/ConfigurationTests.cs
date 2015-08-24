@@ -149,11 +149,11 @@ namespace Raven.Tests.Core.Configuration
             }
             else
             {
-                Assert.True(inMemoryConfiguration.DataDirectory.StartsWith(@"\\"));
-                Assert.True(inMemoryConfiguration.FileSystem.DataDirectory.StartsWith(@"\\"));
+			Assert.True(inMemoryConfiguration.DataDirectory.StartsWith(@"\\"));
+			Assert.True(inMemoryConfiguration.FileSystem.DataDirectory.StartsWith(@"\\"));
 				Assert.True(inMemoryConfiguration.Counter.DataDirectory.StartsWith(@"\\"));
 				Assert.True(inMemoryConfiguration.TimeSeries.DataDirectory.StartsWith(@"\\"));
-            }
+		}
 		}
 
 		[Fact]
@@ -186,6 +186,7 @@ namespace Raven.Tests.Core.Configuration
 
 			var configurationComparer = new ConfigurationComparer(inMemoryConfiguration, stronglyTypedConfiguration, propertyPathsToIgnore);
 			configurationComparer.Ignore(x=>x.EnableResponseLoggingForEmbeddedDatabases);
+			configurationComparer.Ignore(x => x.DynamicMemoryLimitForProcessing);
 			configurationComparer.Assert(expected => expected.RejectClientsModeEnabled.Value, actual => actual.RejectClientsMode);
 			configurationComparer.Assert(expected => expected.MaxSecondsForTaskToWaitForDatabaseToLoad.Value, actual => actual.MaxSecondsForTaskToWaitForDatabaseToLoad);
 			configurationComparer.Assert(expected => expected.NewIndexInMemoryMaxTime.Value, actual => actual.NewIndexInMemoryMaxTime);
@@ -211,6 +212,9 @@ namespace Raven.Tests.Core.Configuration
 			configurationComparer.Assert(expected => expected.TimeToWaitBeforeMarkingIdleIndexAsAbandoned.Value, actual => actual.TimeToWaitBeforeMarkingIdleIndexAsAbandoned);
 
             configurationComparer.Assert(expected => expected.WebSockets.InitialBufferPoolSize.Value, actual => actual.WebSockets.InitialBufferPoolSize);
+
+            configurationComparer.Assert(expected => expected.Indexing.DisableIndexingFreeSpaceThreshold.Value, actual => actual.Indexing.DisableIndexingFreeSpaceThreshold);
+			configurationComparer.Assert(expected => expected.Indexing.DisableMapReduceInMemoryTracking.Value, actual => actual.Indexing.DisableMapReduceInMemoryTracking);
 			
 			configurationComparer.Assert(expected => expected.Monitoring.Snmp.Port.Value, actual => actual.Monitoring.Snmp.Port);
 			configurationComparer.Assert(expected => expected.Monitoring.Snmp.Community.Value, actual => actual.Monitoring.Snmp.Community);
@@ -298,6 +302,8 @@ namespace Raven.Tests.Core.Configuration
 			configurationComparer.Assert(expected => expected.Cluster.MaxEntriesPerRequest.Value, actual => actual.Cluster.MaxEntriesPerRequest);
 			configurationComparer.Assert(expected => expected.Cluster.MaxStepDownDrainTime.Value, actual => actual.Cluster.MaxStepDownDrainTime);
 			configurationComparer.Assert(expected => expected.Cluster.MaxLogLengthBeforeCompaction.Value, actual => actual.Cluster.MaxLogLengthBeforeCompaction);
+			configurationComparer.Assert(expected => expected.TempPath.Value, actual => actual.TempPath);
+			
 			configurationComparer.Ignore(x => x.Storage.Esent.JournalsStoragePath);
 			configurationComparer.Ignore(x => x.Storage.Voron.JournalsStoragePath);
 			configurationComparer.Ignore(x => x.IgnoreSslCertificateErrors);

@@ -8,7 +8,7 @@ namespace Raven.Abstractions.Data
 		/// <summary>
 		/// The ID of a resource. Can be either the resource name ("Northwind") or the full document name ("Raven/{ResourceType}/Northwind").
 		/// </summary>
-		public string Id { get; set; }
+		public virtual string Id { get; set; }
 		/// <summary>
 		/// Resource settings (unsecured).
 		/// </summary>

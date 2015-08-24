@@ -1,7 +1,7 @@
 import database = require("models/resources/database");
 import filesystem = require("models/filesystem/filesystem");
 import counterStorage = require("models/counter/counterStorage");
-import timeSeries = require("models/timeSeries/timeSeriesDocument");
+import timeSeries = require("models/timeSeries/timeSeries");
 import resource = require("models/resources/resource");
 import router = require("plugins/router");
 import collection = require("models/database/documents/collection");
@@ -72,6 +72,7 @@ class appUrl {
         quotas: ko.computed(() => appUrl.forQuotas(appUrl.currentDatabase())),
         periodicExport: ko.computed(() => appUrl.forPeriodicExport(appUrl.currentDatabase())),
         replications: ko.computed(() => appUrl.forReplications(appUrl.currentDatabase())),
+		hotSpare: ko.computed(() => appUrl.forHotSpare()),
         versioning: ko.computed(() => appUrl.forVersioning(appUrl.currentDatabase())),
         sqlReplications: ko.computed(() => appUrl.forSqlReplications(appUrl.currentDatabase())),
         editSqlReplication: ko.computed((sqlReplicationName: string) => appUrl.forEditSqlReplication(sqlReplicationName, appUrl.currentDatabase())),
@@ -124,7 +125,8 @@ class appUrl {
         counterStorageStats: ko.computed(() => appUrl.forCounterStorageStats(appUrl.currentCounterStorage())),
         counterStorageConfiguration: ko.computed(() => appUrl.forCounterStorageConfiguration(appUrl.currentCounterStorage())),
 
-        timeSeriesKey: ko.computed(() => appUrl.forTimeSeriesKey(null, null, appUrl.currentTimeSeries())),
+        timeSeriesType: ko.computed(() => appUrl.forTimeSeriesType(null, appUrl.currentTimeSeries())),
+        timeSeriesPoints: ko.computed(() => appUrl.forTimeSeriesKey(null, null, appUrl.currentTimeSeries())),
         timeSeriesStats: ko.computed(() => appUrl.forTimeSeriesStats(appUrl.currentTimeSeries())),
         timeSeriesConfiguration: ko.computed(() => appUrl.forTimeSeriesConfiguration(appUrl.currentTimeSeries()))
     };
@@ -175,13 +177,22 @@ class appUrl {
         return "#counterstorages/configuration?" + counterStroragePart;
     }
 
-    static forTimeSeriesKey(prefix: string, key: string, ts: timeSeries) {
+    static forTimeSeriesType(type: string, ts: timeSeries) {
         var url = "";
-        if (prefix && key) {
-            url = "prefix=" + encodeURIComponent(prefix) + "&key=" + encodeURIComponent(key);
+        if (type) {
+            url = "type=" + encodeURIComponent(type);
         }
         var timeSeriesPart = appUrl.getEncodedTimeSeriesPart(ts);
-        return "#timeseries/series?" + url + timeSeriesPart;
+        return "#timeseries/types?" + url + timeSeriesPart;
+    }
+
+    static forTimeSeriesKey(type: string, key: string, ts: timeSeries) {
+        var url = "";
+        if (type && key) {
+            url = "type=" + encodeURIComponent(type) + "&key=" + encodeURIComponent(key);
+        }
+        var timeSeriesPart = appUrl.getEncodedTimeSeriesPart(ts);
+        return "#timeseries/points?" + url + timeSeriesPart;
     }
 
     static forTimeSeriesStats(ts: timeSeries) {
@@ -253,6 +264,10 @@ class appUrl {
         return "#admin/settings/backup";
     }
 
+	static forHotSpare(): string {
+        return "#admin/settings/hotSpare";
+    }
+
     static forCompact(): string {
         return "#admin/settings/compact";
     }
@@ -279,6 +294,10 @@ class appUrl {
 
     static forIoTest(): string {
         return "#admin/settings/ioTest";
+    }
+
+    static forDiskIoViewer(): string {
+        return "#admin/settings/diskIoViewer";
     }
 
 	static forAdminJsConsole(): string {
@@ -525,7 +544,6 @@ class appUrl {
     static forReplications(db: database): string {
         return "#databases/settings/replication?" + appUrl.getEncodedDbPart(db);
     }
-
     static forVersioning(db: database): string {
         return "#databases/settings/versioning?" + appUrl.getEncodedDbPart(db);
     }

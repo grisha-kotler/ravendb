@@ -15,7 +15,7 @@ using Raven.Abstractions.TimeSeries;
 using Raven.Abstractions.TimeSeries.Notifications;
 using Raven.Abstractions.Data;
 using Raven.Abstractions.Extensions;
-using Raven.Client.FileSystem;
+using Raven.Client.FileSystem.Extensions;
 using Raven.Database.Actions;
 using Raven.Database.Extensions;
 using Raven.Database.Server.Security;
@@ -30,64 +30,60 @@ namespace Raven.Database.TimeSeries.Controllers
 {
 	public class TimeSeriesOperationsController : RavenTimeSeriesApiController
 	{
-		[RavenRoute("ts/{timeSeriesName}/prefix-create/{prefix}")]
-		[HttpPost]
-		public HttpResponseMessage CreatePrefixConfiguration(string prefix, byte valueLength)
+		[RavenRoute("ts/{timeSeriesName}/types/{type}")]
+		[HttpPut]
+		public HttpResponseMessage PutType(TimeSeriesType type)
 		{
-			if (string.IsNullOrEmpty(prefix) || valueLength < 1)
+			if (string.IsNullOrEmpty(type.Type) || type.Fields == null || type.Fields.Length < 1)
 				return GetEmptyMessage(HttpStatusCode.BadRequest);
 
-			if (prefix.StartsWith("-") == false)
-				return GetMessageWithString("Prefix must start with '-' char", HttpStatusCode.BadRequest);
-
-			Storage.CreatePrefixConfiguration(prefix, valueLength);
+			Storage.CreateType(new TimeSeriesType
+			{
+				Type = type.Type,
+				Fields = type.Fields,
+			});
 			Storage.MetricsTimeSeries.ClientRequests.Mark();
 
 			return new HttpResponseMessage(HttpStatusCode.Created);
 		}
 
-		[RavenRoute("ts/{timeSeriesName}/prefix-delete/{prefix}")]
+		[RavenRoute("ts/{timeSeriesName}/types/{type}")]
 		[HttpDelete]
-		public HttpResponseMessage DeletePrefixConfiguration(string prefix)
+		public HttpResponseMessage DeleteType(string type)
 		{
-			if (string.IsNullOrEmpty(prefix))
+			if (string.IsNullOrEmpty(type))
 				return GetEmptyMessage(HttpStatusCode.BadRequest);
 
-			if (prefix.StartsWith("-") == false)
-				return GetMessageWithString("Prefix must start with '-' char", HttpStatusCode.BadRequest);
-
-			Storage.DeletePrefixConfiguration(prefix);
+			Storage.DeleteType(type);
 			Storage.MetricsTimeSeries.ClientRequests.Mark();
 
 			return new HttpResponseMessage(HttpStatusCode.Created);
 		}
 
-		[RavenRoute("ts/{timeSeriesName}/append/{prefix}/{key}")]
-		[HttpPost]
-		public HttpResponseMessage Append(string prefix, string key, TimeSeriesPoint input)
+		[RavenRoute("ts/{timeSeriesName}/append/{type}")]
+		[HttpPut]
+		public async Task<HttpResponseMessage> AppendPoint()
 		{
-			if (string.IsNullOrEmpty(prefix) || string.IsNullOrEmpty(key) || input.Values == null || input.Values.Length == 0)
+			var point = await ReadJsonObjectAsync<TimeSeriesFullPoint>();
+			if (point == null || string.IsNullOrEmpty(point.Type) || string.IsNullOrEmpty(point.Key) || point.Values == null || point.Values.Length == 0)
 				return GetEmptyMessage(HttpStatusCode.BadRequest);
-
-			if (prefix.StartsWith("-") == false)
-				throw new InvalidOperationException("Prefix must start with '-' char");
 
 			using (var writer = Storage.CreateWriter())
 			{
-				writer.Append(prefix, key, input.At, input.Values);
+				var newPointWasAppended = writer.Append(point.Type, point.Key, point.At, point.Values);
 				writer.Commit();
 
 				Storage.MetricsTimeSeries.ClientRequests.Mark();
 				Storage.Publisher.RaiseNotification(new KeyChangeNotification
 				{
-					Prefix = prefix,
-					Key = key,
+					Type = point.Type,
+					Key = point.Key,
 					Action = TimeSeriesChangeAction.Append,
-					At = input.At,
-					Values = input.Values,
+					At = point.At,
+					Values = point.Values,
 				});
 
-				return new HttpResponseMessage(HttpStatusCode.OK);
+				return GetEmptyMessage(newPointWasAppended ? HttpStatusCode.Created : HttpStatusCode.OK);
 			}
 		}
 
@@ -146,7 +142,7 @@ namespace Raven.Database.TimeSeries.Controllers
 
 							foreach (var change in changeBatch)
 							{
-								writer.Append(change.Prefix, change.Key, change.At, change.Values);
+								writer.Append(change.Type, change.Key, change.At, change.Values);
 							}
 							writer.Commit();
 
@@ -280,65 +276,82 @@ namespace Raven.Database.TimeSeries.Controllers
 			public bool IsTimedOut { get; set; }
 		}
 
-		[RavenRoute("ts/{timeSeriesName}/delete/{prefix}/{key}")]
+		[RavenRoute("ts/{timeSeriesName}/delete-key/{type}")]
 		[HttpDelete]
-		public HttpResponseMessage Delete(string prefix, string key)
+		public HttpResponseMessage DeleteKey(string type, string key)
 		{
-			if (string.IsNullOrEmpty(prefix) || string.IsNullOrEmpty(key))
+			if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(key))
 				return GetEmptyMessage(HttpStatusCode.BadRequest);
 
-			if (prefix.StartsWith("-") == false)
-				return GetMessageWithString("Prefix must start with '-' char", HttpStatusCode.BadRequest);
-
-			var valueLength = Storage.GetPrefixConfiguration(prefix);
-			if (valueLength == 0)
-				return GetMessageWithString("Cannot delete from not exist prefix: " + prefix, HttpStatusCode.BadRequest);
-			
 			using (var writer = Storage.CreateWriter())
 			{
-				writer.Delete(prefix, key);
-				writer.DeleteKeyInRollups(prefix, key);
+				var pointsDeleted = writer.DeleteKey(type, key);
+				writer.DeleteKeyInRollups(type, key);
 				writer.Commit();
 
 				Storage.MetricsTimeSeries.Deletes.Mark();
 				Storage.Publisher.RaiseNotification(new KeyChangeNotification
 				{
-					Prefix = prefix,
+					Type = type,
 					Key = key,
 					Action = TimeSeriesChangeAction.Delete,
 				});
 
-				return new HttpResponseMessage(HttpStatusCode.OK);
+				return GetMessageWithObject(pointsDeleted);
 			}
 		}
 
-		[RavenRoute("ts/{timeSeriesName}/deleteRange/{prefix}/{key}")]
+		[RavenRoute("ts/{timeSeriesName}/delete-points")]
 		[HttpDelete]
-		public HttpResponseMessage DeleteRange(string prefix, string key, long start, long end)
+		public async Task<HttpResponseMessage> DeletePoints()
 		{
-			if (string.IsNullOrEmpty(prefix) || string.IsNullOrEmpty(key) || start < DateTime.MinValue.Ticks || start > DateTime.MaxValue.Ticks)
+			var points = await ReadJsonObjectAsync<TimeSeriesPointId[]>();
+            if (points == null || points.Length == 0)
+				return GetEmptyMessage(HttpStatusCode.BadRequest);
+
+			var deletedCount = 0;
+			using (var writer = Storage.CreateWriter())
+			{
+				foreach (var point in points)
+				{
+					if (writer.DeletePoint(point))
+						deletedCount++;
+					writer.DeletePointInRollups(point);
+
+					Storage.MetricsTimeSeries.Deletes.Mark();
+					Storage.Publisher.RaiseNotification(new KeyChangeNotification
+					{
+						Type = point.Type,
+						Key = point.Key,
+						Action = TimeSeriesChangeAction.Delete,
+					});
+				}
+				writer.Commit();
+
+				return GetMessageWithObject(deletedCount);
+			}
+		}
+
+		[RavenRoute("ts/{timeSeriesName}/delete-range/{type}")]
+		[HttpDelete]
+		public HttpResponseMessage DeleteRange(string type, string key, DateTimeOffset start, DateTimeOffset end)
+		{
+			if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(key))
 				return GetEmptyMessage(HttpStatusCode.BadRequest);
 
 			if (start > end)
 				throw new InvalidOperationException("start cannot be greater than end");
 
-			if (prefix.StartsWith("-") == false)
-				throw new InvalidOperationException("Prefix must start with '-' char");
-
-			var valueLength = Storage.GetPrefixConfiguration(prefix);
-			if (valueLength == 0)
-				return GetMessageWithString("Cannot delete from not exist prefix: " + prefix, HttpStatusCode.BadRequest); 
-			
 			using (var writer = Storage.CreateWriter())
 			{
-				writer.DeleteRange(prefix, key, start, end);
-				writer.DeleteRangeInRollups(prefix, key, start, end);
+				writer.DeleteRange(type, key, start.ToUniversalTime().Ticks, end.ToUniversalTime().Ticks);
+				writer.DeleteRangeInRollups(type, key, start.ToUniversalTime().Ticks, end.ToUniversalTime().Ticks);
 				writer.Commit();
 
 				Storage.MetricsTimeSeries.Deletes.Mark();
 				Storage.Publisher.RaiseNotification(new KeyChangeNotification
 				{
-					Prefix = prefix,
+					Type = type,
 					Key = key,
 					Action = TimeSeriesChangeAction.DeleteInRange,
 					Start = start,
@@ -349,21 +362,45 @@ namespace Raven.Database.TimeSeries.Controllers
 			}
 		}
 
-		[RavenRoute("ts/{timeSeriesName}/keys")]
+		[RavenRoute("ts/{timeSeriesName}/types")]
 		[HttpGet]
-		public HttpResponseMessage GetKeys()
+		public HttpResponseMessage GetTypes(int skip = 0, int take = 20)
 		{
 			using (var reader = Storage.CreateReader())
 			{
 				Storage.MetricsTimeSeries.ClientRequests.Mark();
-				var keys = reader.GetKeys().ToArray();
+				var types = reader.GetTypes(skip).Take(take).ToArray();
+				return Request.CreateResponse(HttpStatusCode.OK, types);
+			}
+		}
+
+		[RavenRoute("ts/{timeSeriesName}/key/{type}")]
+		[HttpGet]
+		public HttpResponseMessage GetKey(string type, string key)
+		{
+			using (var reader = Storage.CreateReader())
+			{
+				Storage.MetricsTimeSeries.ClientRequests.Mark();
+				var result = reader.GetKey(type, key);
+				return Request.CreateResponse(HttpStatusCode.OK, result);
+			}
+		}
+
+		[RavenRoute("ts/{timeSeriesName}/keys/{type}")]
+		[HttpGet]
+		public HttpResponseMessage GetKeys(string type, int skip = 0, int take = 20)
+		{
+			using (var reader = Storage.CreateReader())
+			{
+				Storage.MetricsTimeSeries.ClientRequests.Mark();
+				var keys = reader.GetKeys(type, skip).Take(take).ToArray();
 				return Request.CreateResponse(HttpStatusCode.OK, keys);
 			}
 		}
 
-		[RavenRoute("ts/{timeSeriesName}/{prefix}/{key}/points")]
+		[RavenRoute("ts/{timeSeriesName}/points/{type}")]
 		[HttpGet]
-		public HttpResponseMessage GetPoints(string prefix, string key, int skip = 0, int take = 20)
+		public HttpResponseMessage GetPoints(string type, string key, int skip = 0, int take = 20)
 		{
 			if (skip < 0)
 				throw new ArgumentException("Bad argument", "skip");
@@ -373,7 +410,7 @@ namespace Raven.Database.TimeSeries.Controllers
 			Storage.MetricsTimeSeries.ClientRequests.Mark();
 			using (var reader = Storage.CreateReader())
 			{
-				var points = reader.GetPoints(prefix, key, skip).Take(take);
+				var points = reader.GetPoints(type, key, skip).Take(take);
 				return GetMessageWithObject(points);
 			}
 		}

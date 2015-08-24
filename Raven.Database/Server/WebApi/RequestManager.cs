@@ -14,14 +14,18 @@ using System.Threading.Tasks;
 using System.Web;
 using System.Web.Http.Controllers;
 using Raven.Abstractions;
+using Raven.Abstractions.Connection;
 using Raven.Abstractions.Data;
 using Raven.Abstractions.Extensions;
 using Raven.Abstractions.Logging;
 using Raven.Database.Impl;
+using Raven.Database.Plugins.Builtins;
+using Raven.Database.Queries;
 using Raven.Database.Server.Connections;
 using Raven.Database.Server.Controllers;
 using Raven.Database.Server.Tenancy;
 using Raven.Database.Util;
+using Raven.Json.Linq;
 using Sparrow.Collections;
 
 namespace Raven.Database.Server.WebApi
@@ -62,6 +66,7 @@ namespace Raven.Database.Server.WebApi
 		{
 			get { return Thread.VolatileRead(ref concurrentRequests); }
 		}
+		public HotSpareReplicationBehavior HotSpareValidator { get; set; }
 
 		public event EventHandler<RequestWebApiEventArgs> BeforeRequest;
 		public event EventHandler<RequestWebApiEventArgs> AfterRequest;
@@ -202,12 +207,26 @@ namespace Raven.Database.Server.WebApi
 
 					try
 					{
-						if (controller.ResourceConfiguration.RejectClientsMode && controllerContext.Request.Headers.Contains(Constants.RavenClientVersion))
+						if (  controllerContext.Request.Headers.Contains(Constants.RavenClientVersion))
 						{
-							response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+							if (controller.ResourceConfiguration.RejectClientsMode)
 							{
-								Content = new MultiGetSafeStringContent("This service is not accepting clients calls")
-							};
+								response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+								{
+									Content = new MultiGetSafeStringContent("This service is not accepting clients calls")
+								};
+							}
+							else if (IsInHotSpareMode)
+							{
+								response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+								{
+									Content = new MultiGetSafeStringContent("This service is not accepting clients calls because this is a 'Hot Spare' server")
+								};
+							}
+							else
+							{
+								response = await action();
+							}
 						}
 						else
 						{
@@ -247,6 +266,14 @@ namespace Raven.Database.Server.WebApi
 			}
 			return response;
 		}
+
+		/// <summary>
+		/// If set all client request to the server will be rejected with 
+		/// the http 503 response.
+		/// And no replication can be done from this database.
+		/// </summary>
+
+		public bool IsInHotSpareMode { get; set; }
 
 
 		// Cross-Origin Resource Sharing (CORS) is documented here: http://www.w3.org/TR/cors/
@@ -304,7 +331,7 @@ namespace Raven.Database.Server.WebApi
 
 			CurrentOperationContext.User.Value = null;
 
-			LogContext.DatabaseName.Value = databaseName;
+			LogContext.DatabaseName = databaseName;
 			var disposable = LogManager.OpenMappedContext("database", databaseName ?? Constants.SystemDatabase);
 
 			CurrentOperationContext.RequestDisposables.Value.Add(disposable);
@@ -316,7 +343,7 @@ namespace Raven.Database.Server.WebApi
 			{
 				CurrentOperationContext.Headers.Value = null;
 				CurrentOperationContext.User.Value = null;
-				LogContext.DatabaseName.Value = null;
+				LogContext.DatabaseName = null;
 				foreach (var disposable in CurrentOperationContext.RequestDisposables.Value)
 				{
 
@@ -402,7 +429,7 @@ namespace Raven.Database.Server.WebApi
 
 			if (controller.IsInternalRequest == false)
 			{
-				TraceTraffic(controller, logHttpRequestStatsParam, controller.TenantName);
+				TraceTraffic(controller, logHttpRequestStatsParam, controller.TenantName, response);
 			}
 
 			RememberRecentRequests(logHttpRequestStatsParam, controller.TenantName);
@@ -437,10 +464,21 @@ namespace Raven.Database.Server.WebApi
 			return queue.ToArray().Reverse();
 		}
 
-		private void TraceTraffic(RavenBaseApiController controller, LogHttpRequestStatsParams logHttpRequestStatsParams, string databaseName)
+		private void TraceTraffic(RavenBaseApiController controller, LogHttpRequestStatsParams logHttpRequestStatsParams, string databaseName, HttpResponseMessage response)
 		{
 			if (HasAnyHttpTraceEventTransport() == false)
 				return;
+
+			RavenJObject timingsJson = null;
+
+			if (controller is IndexController)
+			{
+				var jsonContent = response.Content as JsonContent;
+				if (jsonContent != null && jsonContent.Data != null) 
+				{
+					timingsJson = jsonContent.Data.Value<RavenJObject>("TimingsInMilliseconds");
+				}
+			}
 
 			NotifyTrafficWatch(
 			new TrafficWatchNotification()
@@ -452,7 +490,8 @@ namespace Raven.Database.Server.WebApi
 				ResponseStatusCode = logHttpRequestStatsParams.ResponseStatusCode,
 				TenantName = NormalizeTennantName(databaseName),
 				TimeStamp = SystemTime.UtcNow,
-				InnerRequestsCount = logHttpRequestStatsParams.InnerRequestsCount
+				InnerRequestsCount = logHttpRequestStatsParams.InnerRequestsCount,
+				QueryTimings = timingsJson
 			}
 			);
 		}
@@ -601,6 +640,8 @@ namespace Raven.Database.Server.WebApi
 					// since shutting down a database can take a while
 					landlord.Cleanup(db, skipIfActiveInDuration: maxTimeDatabaseCanBeIdle, shouldSkip: database => database.Configuration.RunInMemory);
 				}
+
+				FacetedQueryRunner.IntArraysPool.Instance.RunIdleOperations();
 			}
 			catch (Exception e)
 			{

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Raven.Abstractions.Extensions;
 using Raven.Abstractions.Logging;
 using Raven.Database.Config;
+using Raven.Database.DiskIO;
 using Raven.Database.Plugins;
 using Raven.Database.Raft;
 using Raven.Database.Server.Connections;
@@ -41,7 +42,7 @@ namespace Raven.Database.Server
 				{
 					configuration.UpdateDataDirForLegacySystemDb();
 					systemDatabase = new DocumentDatabase(configuration, null);
-					systemDatabase.SpinBackgroundWorkers();
+					systemDatabase.SpinBackgroundWorkers(false);
 				}
 				else
 				{
@@ -54,6 +55,7 @@ namespace Raven.Database.Server
 				countersLandlord = new CountersLandlord(systemDatabase);
 				timeSeriesLandlord = new TimeSeriesLandlord(systemDatabase);
 				requestManager = new RequestManager(databasesLandlord);
+				systemDatabase.RequestManager = requestManager;
 				ClusterManager = new Reference<ClusterManager>();
 				mixedModeRequestAuthorizer = new MixedModeRequestAuthorizer();
 				mixedModeRequestAuthorizer.Initialize(systemDatabase, new RavenServer(databasesLandlord.SystemDatabase, configuration));
@@ -64,9 +66,9 @@ namespace Raven.Database.Server
 				{
 					toDispose.Add(task);
 					task.Execute(this);
+				}
 			}
-			}
-			catch
+			catch (Exception e)
 			{
 				if (systemDatabase != null)
 					systemDatabase.Dispose();
@@ -130,9 +132,8 @@ namespace Raven.Database.Server
 			toDispose.Add(systemDatabase);
 			toDispose.Add(LogManager.GetTarget<AdminLogsTarget>());
 			toDispose.Add(requestManager);
-                        toDispose.Add(countersLandlord);
-
-        toDispose.Add(ClusterManager.Value);
+			toDispose.Add(countersLandlord);
+			toDispose.Add(ClusterManager.Value);
 
             var errors = new List<Exception>();
 

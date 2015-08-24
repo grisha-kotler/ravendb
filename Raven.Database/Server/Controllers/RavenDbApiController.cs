@@ -295,6 +295,12 @@ namespace Raven.Database.Server.Controllers
 			if (string.IsNullOrEmpty(showTimingsAsString) == false && bool.TryParse(showTimingsAsString, out showTimings) && showTimings)
 				query.ShowTimings = true;
 
+            var skipDuplicateCheckingAsstring = GetQueryStringValue("skipDuplicateChecking");
+            bool skipDuplicateChecking;
+            if (string.IsNullOrEmpty(skipDuplicateCheckingAsstring) == false &&
+                bool.TryParse(skipDuplicateCheckingAsstring, out skipDuplicateChecking) && skipDuplicateChecking)
+                query.ShowTimings = true;
+
 			var spatialFieldName = GetQueryStringValue("spatialField") ?? Constants.DefaultSpatialFieldName;
 			var queryShape = GetQueryStringValue("queryShape");
 			SpatialUnits units;
@@ -660,18 +666,6 @@ namespace Raven.Database.Server.Controllers
 			Database.WorkContext.MetricsCounters.RequestDurationLastMinute.AddRecord(duration);
 	    }
 
-		protected bool ClientIsV3OrHigher
-	    {
-	        get
-	        {
-	            IEnumerable<string> values;
-	            if (Request.Headers.TryGetValues("Raven-Client-Version", out values) == false)
-                    return false; // probably 1.0 client?
-
-	            return values.All(x => string.IsNullOrEmpty(x) == false && (x[0] != '1' && x[0] != '2'));
-	        }
-	    }
-
 		protected Etag GetLastDocEtag()
 		{
 			var lastDocEtag = Etag.Empty;
@@ -689,6 +683,7 @@ namespace Raven.Database.Server.Controllers
 
 		protected class TenantData
 		{
+			public bool IsLoaded { get; set; }
 			public string Name { get; set; }
 			public bool Disabled { get; set; }
 			public string[] Bundles { get; set; }
@@ -878,7 +873,7 @@ namespace Raven.Database.Server.Controllers
 
 		protected bool CanExposeConfigOverTheWire()
 		{
-			if (SystemConfiguration.ExposeConfigOverTheWire == "AdminOnly" && SystemConfiguration.AnonymousUserAccessMode == AnonymousUserAccessMode.None)
+			if (string.Equals(SystemConfiguration.ExposeConfigOverTheWire, "AdminOnly", StringComparison.OrdinalIgnoreCase) && SystemConfiguration.AnonymousUserAccessMode != AnonymousUserAccessMode.Admin)
 			{
 				var authorizer = (MixedModeRequestAuthorizer)ControllerContext.Configuration.Properties[typeof(MixedModeRequestAuthorizer)];
 				var user = authorizer.GetUser(this);

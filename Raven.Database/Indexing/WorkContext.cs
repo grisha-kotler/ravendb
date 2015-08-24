@@ -28,9 +28,14 @@ namespace Raven.Database.Indexing
 {
 	public class WorkContext : IDisposable
 	{
+		private readonly SizeLimitedConcurrentSet<FilteredOutIndexStat> recentlyFilteredOutIndexes = new SizeLimitedConcurrentSet<FilteredOutIndexStat>(200);
+
 		private readonly ConcurrentSet<FutureBatchStats> futureBatchStats = new ConcurrentSet<FutureBatchStats>();
 
 		private readonly SizeLimitedConcurrentSet<string> recentlyDeleted = new SizeLimitedConcurrentSet<string>(100, StringComparer.OrdinalIgnoreCase);
+
+	    private long nextIndexingBatchInfoId = 0;
+	    private long nextReducingBatchInfoId = 0;
 
 		private SizeLimitedConcurrentSet<IndexingBatchInfo> lastActualIndexingBatchInfo;
 		private SizeLimitedConcurrentSet<ReducingBatchInfo> lastActualReducingBatchInfo;
@@ -405,7 +410,8 @@ namespace Raven.Database.Indexing
 		public void ReportIndexingBatchCompleted(IndexingBatchInfo batchInfo)
 		{
 			batchInfo.BatchCompleted();
-			LastActualIndexingBatchInfo.Add(batchInfo);
+		    batchInfo.Id = Interlocked.Increment(ref nextIndexingBatchInfoId);
+            LastActualIndexingBatchInfo.Add(batchInfo);
 		}
 
 		public ReducingBatchInfo ReportReducingBatchStarted(List<string> indexesToWorkOn)
@@ -421,12 +427,18 @@ namespace Raven.Database.Indexing
 		public void ReportReducingBatchCompleted(ReducingBatchInfo batchInfo)
 		{
 			batchInfo.BatchCompleted();
-			LastActualReducingBatchInfo.Add(batchInfo);
+            batchInfo.Id = Interlocked.Increment(ref nextReducingBatchInfoId);
+            LastActualReducingBatchInfo.Add(batchInfo);
 		}
 
 		public ConcurrentSet<FutureBatchStats> FutureBatchStats
 		{
 			get { return futureBatchStats; }
+		}
+
+		public SizeLimitedConcurrentSet<FilteredOutIndexStat> RecentlyFilteredOutIndexes
+		{
+			get { return recentlyFilteredOutIndexes; }
 		}
 
 		public SizeLimitedConcurrentSet<IndexingBatchInfo> LastActualIndexingBatchInfo
@@ -505,6 +517,15 @@ namespace Raven.Database.Indexing
         public int GetNextQueryId()
         {
             return Interlocked.Increment(ref nextQueryId);
+        }
+
+		public void MarkIndexFilteredOut(string indexName)
+		{
+			recentlyFilteredOutIndexes.Add(new FilteredOutIndexStat()
+			{
+				IndexName = indexName,
+				Timestamp = SystemTime.UtcNow
+			});
         }
 	}
 }

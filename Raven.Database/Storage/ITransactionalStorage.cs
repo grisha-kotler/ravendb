@@ -4,6 +4,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Raven.Abstractions.Data;
 using Raven.Abstractions.MEF;
@@ -50,9 +51,16 @@ namespace Raven.Database.Storage
 		void ClearCaches();
 		void DumpAllStorageTables();
 		InFlightTransactionalState GetInFlightTransactionalState(DocumentDatabase self, Func<string, Etag, RavenJObject, RavenJObject, TransactionInformation, PutResult> put, Func<string, Etag, TransactionInformation, bool> delete);
-        IList<string> ComputeDetailedStorageInformation();
+        IList<string> ComputeDetailedStorageInformation(bool computeExactSizes = false);
         List<TransactionContextData> GetPreparedTransactions();
 
 		object GetInFlightTransactionsInternalStateForDebugOnly();
+
+		ConcurrentDictionary<int, RemainingReductionPerLevel> GetScheduledReductionsPerViewAndLevel();
+		/// <summary>
+		/// Scheduled reduction tracking is a memory living entity it will get corrupted on a reset.
+		/// The reset must occur while there are no map/reduce indexing activity going on.
+		/// </summary>
+		void ResetScheduledReductionsTracking();
 	}
 }

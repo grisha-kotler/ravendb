@@ -16,13 +16,13 @@ interface counterStorageDto {
 
 interface counterTotalDto {
     CurrentValue: number;
-    Group: string;
+    GroupName: string;
     CounterName: string;
     Delta: number;
 }
 
 interface counterSummaryDto {
-    Group: string;
+    GroupName: string;
     CounterName: string;
     Total: number;
 }

@@ -100,6 +100,8 @@ namespace Raven.Database.Config
 
 		public void PostInit()
 		{
+			CheckDirectoryPermissions();
+
 			FilterActiveBundles();
 
 			SetupOAuth();
@@ -116,6 +118,7 @@ namespace Raven.Database.Config
 			ravenSettings.Setup(defaultMaxNumberOfItemsToIndexInSingleBatch, defaultInitialNumberOfItemsToIndexInSingleBatch);
 
 			WorkingDirectory = CalculateWorkingDirectory(ravenSettings.WorkingDir.Value);
+			DataDirectory = ravenSettings.DataDir.Value;
 			FileSystem.InitializeFrom(this);
 			Counter.InitializeFrom(this);
 			TimeSeries.InitializeFrom(this);
@@ -240,8 +243,6 @@ namespace Raven.Database.Config
 
 			SetupTransactionMode();
 
-			DataDirectory = ravenSettings.DataDir.Value;
-
 			var indexStoragePathSettingValue = ravenSettings.IndexStoragePath.Value;
 			if (string.IsNullOrEmpty(indexStoragePathSettingValue) == false)
 			{
@@ -308,6 +309,7 @@ namespace Raven.Database.Config
 
 			Storage.Esent.JournalsStoragePath = ravenSettings.Esent.JournalsStoragePath.Value;
 		    Storage.PreventSchemaUpdate = ravenSettings.FileSystem.PreventSchemaUpdate.Value;
+			
 			Prefetcher.FetchingDocumentsFromDiskTimeoutInSeconds = ravenSettings.Prefetcher.FetchingDocumentsFromDiskTimeoutInSeconds.Value;
 			Prefetcher.MaximumSizeAllowedToFetchFromStorageInMb = ravenSettings.Prefetcher.MaximumSizeAllowedToFetchFromStorageInMb.Value;
 
@@ -333,6 +335,8 @@ namespace Raven.Database.Config
 			Indexing.MaxNumberOfItemsToProcessInTestIndexes = ravenSettings.Indexing.MaxNumberOfItemsToProcessInTestIndexes.Value;
 			Indexing.MaxNumberOfStoredIndexingBatchInfoElements = ravenSettings.Indexing.MaxNumberOfStoredIndexingBatchInfoElements.Value;
 			Indexing.UseLuceneASTParser = ravenSettings.Indexing.UseLuceneASTParser.Value;
+			Indexing.DisableIndexingFreeSpaceThreshold = ravenSettings.Indexing.DisableIndexingFreeSpaceThreshold.Value;
+			Indexing.DisableMapReduceInMemoryTracking = ravenSettings.Indexing.DisableMapReduceInMemoryTracking.Value;
 
 		    Cluster.ElectionTimeout = ravenSettings.Cluster.ElectionTimeout.Value;
 		    Cluster.HeartbeatTimeout = ravenSettings.Cluster.HeartbeatTimeout.Value;
@@ -347,6 +351,8 @@ namespace Raven.Database.Config
 			IgnoreSslCertificateErrors = GetIgnoreSslCertificateErrorModeMode();
 
 			WebSockets.InitialBufferPoolSize = ravenSettings.WebSockets.InitialBufferPoolSize.Value;
+
+			TempPath = ravenSettings.TempPath.Value;
 
 			FillMonitoringSettings(ravenSettings);
 
@@ -422,6 +428,24 @@ namespace Raven.Database.Config
 		public TimeSpan TimeToWaitBeforeMarkingAutoIndexAsIdle { get; private set; }
 
 		public TimeSpan TimeToWaitBeforeMarkingIdleIndexAsAbandoned { get; private set; }
+
+		private void CheckDirectoryPermissions()
+		{
+			var tempPath = TempPath;
+			var tempFileName = Guid.NewGuid().ToString("N");
+			var tempFilePath = Path.Combine(tempPath, tempFileName);
+
+			try
+			{
+				IOExtensions.CreateDirectoryIfNotExists(tempPath);
+				File.WriteAllText(tempFilePath, string.Empty);
+				File.Delete(tempFilePath);
+			}
+			catch (Exception e)
+			{
+				throw new InvalidOperationException(string.Format("Could not access temp path '{0}'. Please check if you have sufficient privileges to access this path or change 'Raven/TempPath' value.", tempPath), e);
+			}
+		}
 
 		private void FilterActiveBundles()
 		{
@@ -788,7 +812,7 @@ namespace Raven.Database.Config
 		/// <summary>
 		/// The directory for the RavenDB database. 
 		/// You can use the ~\ prefix to refer to RavenDB's base directory. 
-		/// Default: ~\Data
+		/// Default: ~\Databases\System
 		/// </summary>
 		public string DataDirectory
 		{
@@ -996,6 +1020,27 @@ namespace Raven.Database.Config
 		/// </summary>
 		public int MemoryLimitForProcessingInMb { get; set; }
 
+		public long DynamicMemoryLimitForProcessing
+		{
+			get
+			{
+				var availableMemory = MemoryStatistics.AvailableMemoryInMb;
+				var minFreeMemory = (MemoryLimitForProcessingInMb * 2L);
+				// we have more memory than the twice the limit, we can use the default limit
+				if (availableMemory > minFreeMemory)
+					return MemoryLimitForProcessingInMb * 1024L * 1024L;
+
+				// we don't have enough room to play with, if two databases will request the max memory limit
+				// at the same time, we'll start paging because we'll run out of free memory. 
+				// Because of that, we'll dynamically adjust the amount
+				// of memory available for processing based on the amount of memory we actually have available,
+				// assuming that we have multiple concurrent users of memory at the same time.
+				// we limit that at 16 MB, if we have less memory than that, we can't really do much anyway
+                return Math.Min(availableMemory * 1024L * 1024L / 4, 16 * 1024 * 1024);
+
+			}
+		}
+
 		// <summary>
 		/// Limit for low mem detection in linux
 		/// </summary>
@@ -1023,7 +1068,7 @@ namespace Raven.Database.Config
 		/// </summary>
 		public bool DisableClusterDiscovery { get; set; }
 
-		/// <summary>
+        /// <summary>
         /// If True, turns off the discovery client.
         /// </summary>
         public bool TurnOffDiscoveryClient { get; set; }
@@ -1105,8 +1150,13 @@ namespace Raven.Database.Config
         /// </summary>
         public ImplicitFetchFieldsMode ImplicitFetchFieldsFromDocumentMode { get; set; }
 
+		/// <summary>
+		/// Path to temporary directory used by server.
+		/// Default: Current user's temporary directory
+		/// </summary>
+		public string TempPath { get; set; }
 
-		[Browsable(false)]
+	    [Browsable(false)]
 		[EditorBrowsable(EditorBrowsableState.Never)]
 		public void SetSystemDatabase()
 		{
@@ -1521,6 +1571,10 @@ namespace Raven.Database.Config
 		public class IndexingConfiguration
 		{
 			public int MaxNumberOfItemsToProcessInTestIndexes { get; set; }
+
+			public int DisableIndexingFreeSpaceThreshold { get; set; }
+
+			public bool DisableMapReduceInMemoryTracking { get; set; }
 			public int MaxNumberOfStoredIndexingBatchInfoElements { get; set; }
 			public bool UseLuceneASTParser
 			{
@@ -1530,7 +1584,7 @@ namespace Raven.Database.Config
 					if (value == useLuceneASTParser)
 						return;
 					QueryBuilder.UseLuceneASTParser = useLuceneASTParser = value;
-				}
+		}
 			}
 			private bool useLuceneASTParser = true;
 		}

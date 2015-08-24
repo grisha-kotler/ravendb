@@ -28,22 +28,23 @@ namespace Raven.Client.TimeSeries
 		TimeSeriesStore.TimeSeriesStoreAdminOperations Admin { get; }
 
 
-		Task CreatePrefixConfigurationAsync(string prefix, byte valueLength, CancellationToken token = default(CancellationToken));
+		Task CreateTypeAsync(string type, string[] fields, CancellationToken token = default(CancellationToken));
 
-		Task DeletePrefixConfigurationAsync(string prefix, CancellationToken token = default(CancellationToken));
+		Task DeleteTypeAsync(string type, CancellationToken token = default(CancellationToken));
 
-		Task AppendAsync(string prefix, string key, DateTime at, double value, CancellationToken token = default(CancellationToken));
+		Task AppendAsync(string type, string key, DateTimeOffset at, double value, CancellationToken token = default(CancellationToken));
 
-		Task AppendAsync(string prefix, string key, DateTime at, CancellationToken token, params double[] values);
+		Task AppendAsync(string type, string key, DateTimeOffset at, CancellationToken token, params double[] values);
 
-		Task AppendAsync(string prefix, string key, DateTime at, double[] values, CancellationToken token = default(CancellationToken));
+		Task AppendAsync(string type, string key, DateTimeOffset at, double[] values, CancellationToken token = default(CancellationToken));
 
-		Task DeleteAsync(string prefix, string key, CancellationToken token = default(CancellationToken));
+		Task DeleteKeyAsync(string type, string key, CancellationToken token = default(CancellationToken));
 
-		Task DeleteRangeAsync(string prefix, string key, DateTime start, DateTime end, CancellationToken token = default(CancellationToken));
+		Task DeletePointAsync(string type, string key, DateTimeOffset at, CancellationToken token = default(CancellationToken));
 
+		Task DeleteRangeAsync(string type, string key, DateTimeOffset start, DateTimeOffset end, CancellationToken token = default(CancellationToken));
 		
-		Task<TimeSeriesStats> GetTimeSeriesStatsAsync(CancellationToken token = default (CancellationToken));
+		Task<TimeSeriesStats> GetStatsAsync(CancellationToken token = default (CancellationToken));
 
 		Task<TimeSeriesMetrics> GetTimeSeriesMetricsAsync(CancellationToken token = default (CancellationToken));
 

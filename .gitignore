@@ -50,6 +50,8 @@ Raven.Studio.Html5/App/commands/*.js
 Raven.Studio.Html5/App/commands/*.js.map
 Raven.Studio.Html5/App/commands/auth/*.js
 Raven.Studio.Html5/App/commands/auth/*.js.map
+Raven.Studio.Html5/App/commands/licensing/*.js
+Raven.Studio.Html5/App/commands/licensing/*.js.map
 Raven.Studio.Html5/App/commands/maintenance/*.js
 Raven.Studio.Html5/App/commands/maintenance/*.js.map
 Raven.Studio.Html5/App/commands/operations/*.js
@@ -152,6 +154,8 @@ Raven.Studio.Html5/App/viewmodels/database/status/debug/*.js
 Raven.Studio.Html5/App/viewmodels/database/status/debug/*.js.map
 Raven.Studio.Html5/App/viewmodels/database/status/indexing/*.js
 Raven.Studio.Html5/App/viewmodels/database/status/indexing/*.js.map
+Raven.Studio.Html5/App/viewmodels/database/status/indexing/perfDialogs/*.js
+Raven.Studio.Html5/App/viewmodels/database/status/indexing/perfDialogs/*.js.map
 Raven.Studio.Html5/App/viewmodels/database/status/requests/*.js
 Raven.Studio.Html5/App/viewmodels/database/status/requests/*.js.map
 Raven.Studio.Html5/App/viewmodels/database/status/storage/*.js
@@ -202,5 +206,6 @@ RavenDB.sln.ide/
 /Raven.Web/Raven/CompiledIndexCache
 _NCrunch_RavenDB/
 /Raven.Tests.Web/CompiledIndexCache
+.vs/
 /Raven.Database/LuceneQueryParser.Language.analyzer.lst
 /Raven.Database/LuceneQueryParser.Language.grammar.lst

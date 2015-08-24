@@ -22,7 +22,7 @@ namespace Raven.Database.Counters.Storage
 			string backupSourceDirectory, string backupDestinationDirectory, bool incrementalBackup)
 			: base(counterStorage, counterStorageDocument, env, backupSourceDirectory, backupDestinationDirectory, incrementalBackup)
 		{
-			backupFilename = Document.Id + ".Voron.Backup";
+			backupFilename = Document.StoreName + ".Voron.Backup";
 
 			if (incrementalBackup)
 				PrepareForIncrementalBackup();
@@ -46,7 +46,7 @@ namespace Raven.Database.Counters.Storage
 				var state = new IncrementalBackupState
 				{
 					ResourceId = ResourceStore.ServerId,
-					ResourceName = Document.Id
+					ResourceName = Document.StoreName
 				};
 
 				File.WriteAllText(incrementalBackupState, RavenJObject.FromObject(state).ToString());

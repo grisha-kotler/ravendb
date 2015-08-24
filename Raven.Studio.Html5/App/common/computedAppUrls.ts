@@ -41,6 +41,7 @@ interface computedAppUrls {
     quotas: KnockoutComputed<string>;
     periodicExport: KnockoutComputed<string>;
     replications: KnockoutComputed<string>;
+	hotSpare: KnockoutComputed<string>;
     versioning: KnockoutComputed<string>;
     sqlReplications: KnockoutComputed<string>;
     sqlReplicationsConnections: KnockoutComputed<string>;
@@ -90,7 +91,8 @@ interface computedAppUrls {
     counterStorageStats: KnockoutComputed<string>;
     counterStorageConfiguration: KnockoutComputed<string>;
 
-    timeSeriesKey: KnockoutComputed<string>;
+    timeSeriesType: KnockoutComputed<string>;
+    timeSeriesPoints: KnockoutComputed<string>;
     timeSeriesStats: KnockoutComputed<string>;
     timeSeriesConfiguration: KnockoutComputed<string>;
 

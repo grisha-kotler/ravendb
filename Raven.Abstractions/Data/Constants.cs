@@ -13,7 +13,7 @@ namespace Raven.Abstractions.Data
 
 		public const string ParticipatingIDsPropertyName = "Participating-IDs-Property-Name";
 
-	    public const string IsIndexReplicatedUrlParamName = "is-replicated";
+	    public const string IsReplicatedUrlParamName = "is-replicated";
 		public const string RavenClientPrimaryServerUrl = "Raven-Client-Primary-Server-Url";
 
 		public const string RavenClientPrimaryServerLastCheck = "Raven-Client-Primary-Server-LastCheck";
@@ -253,9 +253,9 @@ namespace Raven.Abstractions.Data
         /// if no encoding information in headers of incoming request, this encoding is assumed
         /// </summary>
         public const string DefaultRequestEncoding = "UTF-8";
-
+        
 		public const string DocumentsByEntityNameIndex = "Raven/DocumentsByEntityName";
-
+		
         public const string MetadataEtagField = "ETag";
 
 		public const string TempUploadsDirectoryName = "RavenTempUploads";
@@ -469,6 +469,13 @@ namespace Raven.Abstractions.Data
 
 		public const string AllowScriptsToAdjustNumberOfSteps = "Raven/AllowScriptsToAdjustNumberOfSteps";
 
+	    public class Indexing
+	    {
+			public const string DisableIndexingFreeSpaceThreshold = "Raven/Indexing/DisableIndexingFreeSpaceThreshold";
+		    public const string DisableMapReduceInMemoryTracking = "Raven/Indexing/DisableMapReduceInMemoryTracking";
+	    }
 		public const string RequestFailedExceptionMarker = "ExceptionRequestFailed";
-	}
-}
+
+		public const string TempPath = "Raven/TempPath";
+        
+}}

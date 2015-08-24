@@ -1,4 +1,4 @@
-﻿/*import dialog = require("plugins/dialog");
+﻿import dialog = require("plugins/dialog");
 import dialogViewModelBase = require("viewmodels/dialogViewModelBase");
 import pointChange = require("models/timeSeries/pointChange");
 
@@ -9,10 +9,10 @@ class editPointDialog extends dialogViewModelBase {
     editedPoint = ko.observable<pointChange>();
     isNew: KnockoutComputed<boolean>;
 
-    constructor(editedPoint?: pointChange) {
+    constructor(editedPoint: pointChange, isNew: boolean) {
         super();
-        this.editedPoint(!editedPoint ? pointChange.empty() : editedPoint);
-        this.isNew = ko.computed(() => !!this.editedPoint() && this.editedPoint().isNew());
+        this.editedPoint(editedPoint);
+        this.isNew = ko.computed(() => isNew && this.editedPoint().isNew());
     }
 
     cancel() {
@@ -34,4 +34,4 @@ class editPointDialog extends dialogViewModelBase {
     }
 }
 
-export = editPointDialog;*/
+export = editPointDialog;

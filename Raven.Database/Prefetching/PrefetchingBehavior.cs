@@ -37,15 +37,16 @@ namespace Raven.Database.Prefetching
 
 		private DocAddedAfterCommit lowestInMemoryDocumentAddedAfterCommit;
 		private int currentIndexingAge;
+		private string userDescription;
 
 		public Action<int> FutureBatchCompleted = delegate { };
 
-		public PrefetchingBehavior(PrefetchingUser prefetchingUser, WorkContext context, BaseBatchSizeAutoTuner autoTuner)
+		public PrefetchingBehavior(PrefetchingUser prefetchingUser, WorkContext context, BaseBatchSizeAutoTuner autoTuner, string prefetchingUserDescription)
 		{
 			this.context = context;
 			this.autoTuner = autoTuner;
 			PrefetchingUser = prefetchingUser;
-
+			this.userDescription = prefetchingUserDescription;
 			MemoryStatistics.RegisterLowMemoryHandler(this);
 		}
 
@@ -176,6 +177,10 @@ namespace Raven.Database.Prefetching
 			bool docsLoaded;
 			int prefetchingQueueSizeInBytes;
 			var prefetchingDurationTimer = Stopwatch.StartNew();
+
+            // We take an snapshot because the implementation of accessing Values from a ConcurrentDictionary involves a lock.
+            // Taking the snapshot should be safe enough. 
+            long currentlyUsedBatchSizesInBytes = autoTuner.CurrentlyUsedBatchSizesInBytes.Values.Sum();
 			do
 			{
 				var nextEtagToIndex = GetNextDocEtag(etag);
@@ -195,9 +200,13 @@ namespace Raven.Database.Prefetching
 					etag = result[result.Count - 1].Etag;
 
 				prefetchingQueueSizeInBytes = prefetchingQueue.LoadedSize;
-			} while (result.Count < autoTuner.NumberOfItemsToProcessInSingleBatch && (take.HasValue == false || result.Count < take.Value) && docsLoaded &&
-						prefetchingDurationTimer.ElapsedMilliseconds <= context.Configuration.PrefetchingDurationLimit &&
-						((prefetchingQueueSizeInBytes + autoTuner.CurrentlyUsedBatchSizesInBytes.Values.Sum()) < (context.Configuration.MemoryLimitForProcessingInMb * 1024 * 1024)));
+			} 
+			while (
+				result.Count < autoTuner.NumberOfItemsToProcessInSingleBatch && 
+				(take.HasValue == false || result.Count < take.Value) && 
+				docsLoaded &&
+				prefetchingDurationTimer.ElapsedMilliseconds <= context.Configuration.PrefetchingDurationLimit &&
+                ((prefetchingQueueSizeInBytes + currentlyUsedBatchSizesInBytes) < (context.Configuration.DynamicMemoryLimitForProcessing)));
 
 			return result;
 		}
@@ -336,12 +345,16 @@ namespace Raven.Database.Prefetching
 		{
 			List<JsonDocument> jsonDocs = null;
 
+            // We take an snapshot because the implementation of accessing Values from a ConcurrentDictionary involves a lock.
+            // Taking the snapshot should be safe enough. 
+            long currentlyUsedBatchSizesInBytes = autoTuner.CurrentlyUsedBatchSizesInBytes.Values.Sum();
+
 			context.TransactionalStorage.Batch(actions =>
 			{
 				//limit how much data we load from disk --> better adhere to memory limits
 				var totalSizeAllowedToLoadInBytes =
-					(context.Configuration.MemoryLimitForProcessingInMb * 1024 * 1024) -
-					(prefetchingQueue.LoadedSize + autoTuner.CurrentlyUsedBatchSizesInBytes.Values.Sum());
+					(context.Configuration.DynamicMemoryLimitForProcessing) -
+                    (prefetchingQueue.LoadedSize + currentlyUsedBatchSizesInBytes);
 
 				// at any rate, we will load a min of 512Kb docs
 				var maxSize = Math.Max(
@@ -422,7 +435,7 @@ namespace Raven.Database.Prefetching
 			}
 
 			// ensure we don't do TOO much future caching
-			if (MemoryStatistics.AvailableMemory <
+			if (MemoryStatistics.AvailableMemoryInMb <
 				context.Configuration.AvailableMemoryForRaisingBatchSizeLimit)
 				return;
 
@@ -690,6 +703,31 @@ namespace Raven.Database.Prefetching
 		public void HandleLowMemory()
 		{
 			ClearQueueAndFutureBatches();
+		}
+
+		public void SoftMemoryRelease()
+		{
+			
+		}
+
+		public LowMemoryHandlerStatistics GetStats()
+		{
+			var futureIndexBatchesSize = futureIndexBatches.Sum(x => x.Value.Task.IsCompleted ? x.Value.Task.Result.Sum(y => y.SerializedSizeOnDisk) : 0);
+			var futureIndexBatchesDocCount = futureIndexBatches.Sum(x => x.Value.Task.IsCompleted ? x.Value.Task.Result.Count : 0);
+			return new LowMemoryHandlerStatistics
+			{
+				Name = "PrefetchingBehavior",
+				DatabaseName = context.DatabaseName,
+				EstimatedUsedMemory = prefetchingQueue.LoadedSize + futureIndexBatchesSize,
+				Metadata = new
+				{
+					PrefetchingUserType = this.PrefetchingUser,
+					PrefetchingUserDescription = userDescription,
+					PrefetchingQueueDocCount =prefetchingQueue.Count,
+					FutureIndexBatchSizeDocCount = futureIndexBatchesDocCount
+
+				}
+			};
 		}
 
 		public void ClearQueueAndFutureBatches()

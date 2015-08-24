@@ -78,7 +78,7 @@ namespace Raven.Database.Bundles.SqlReplication
 
 		public void Execute(DocumentDatabase database)
 		{
-			defaultPrefetchingBehavior = database.Prefetcher.CreatePrefetchingBehavior(PrefetchingUser.SqlReplicator, null);
+			defaultPrefetchingBehavior = database.Prefetcher.CreatePrefetchingBehavior(PrefetchingUser.SqlReplicator, null, "SqlReplication");
 			prefetchingBehaviors.TryAdd(defaultPrefetchingBehavior);
 
 			Database = database;
@@ -167,15 +167,25 @@ namespace Raven.Database.Bundles.SqlReplication
 				);
 		}
 
+		private bool IsHotSpare()
+		{
+			if (Database.RequestManager == null) return false;
+			return Database.RequestManager.IsInHotSpareMode;
+		}
+
 		private void BackgroundSqlReplication()
 		{
 			int workCounter = 0;
 			while (Database.WorkContext.DoWork)
 			{
-				IsRunning = !shouldPause;
+				IsRunning = !IsHotSpare() && !shouldPause;
 
-				if (!IsRunning)
-					continue;
+			    if (!IsRunning)
+			    {
+                    Database.WorkContext.WaitForWork(TimeSpan.FromMinutes(10), ref workCounter, "Sql Replication");
+
+                    continue;
+			    }
 
 				var config = GetConfiguredReplicationDestinations();
 				if (config.Count == 0)
@@ -445,7 +455,7 @@ namespace Raven.Database.Bundles.SqlReplication
 					return prefetchingBehavior;
 			}
 
-			var newPrefetcher = Database.Prefetcher.CreatePrefetchingBehavior(PrefetchingUser.SqlReplicator, null);
+			var newPrefetcher = Database.Prefetcher.CreatePrefetchingBehavior(PrefetchingUser.SqlReplicator, null, "SqlReplication");
 
 			prefetchingBehaviors.Add(newPrefetcher);
 			usedPrefetchers.Add(newPrefetcher);

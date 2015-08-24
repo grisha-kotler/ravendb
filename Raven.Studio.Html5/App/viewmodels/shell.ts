@@ -10,7 +10,7 @@ import resource = require("models/resources/resource");
 import database = require("models/resources/database");
 import fileSystem = require("models/filesystem/filesystem");
 import counterStorage = require("models/counter/counterStorage");
-import timeSeries = require("models/timeSeries/timeSeriesDocument");
+import timeSeries = require("models/timeSeries/timeSeries");
 import documentClass = require("models/database/documents/document");
 import collection = require("models/database/documents/collection");
 import uploadItem = require("models/filesystem/uploadItem");
@@ -65,7 +65,7 @@ class shell extends viewModelBase {
     selectedColor = shell.selectedEnvironmentColorStatic;
     selectedEnviromentText = ko.computed(() => this.selectedColor().name + " Enviroment");
     canShowEnviromentText = ko.computed(() => this.selectedColor().name !== "Default");
-    
+
     private router = router;
     renewOAuthTokenTimeoutId: number;
     showContinueTestButton = ko.computed(() => viewModelBase.hasContinueTestOption());
@@ -124,26 +124,28 @@ class shell extends viewModelBase {
     });
 
     static resources = ko.computed(() => {
-	    var databases: resource[] = shell.databases();
+        var databases: resource[] = shell.databases();
         var fileSystems: resource[] = shell.fileSystems();
         var counterStorages: resource[] = shell.counterStorages();
         var timeSeries: resource[] = shell.timeSeries();
         var result = databases.concat(counterStorages, timeSeries, fileSystems);
         return result.sort((a, b) => {
-	        if (a.name === "<system>")
-		        return 1;
-	        if (b.name === "<system>")
-		        return -1;
-	        return a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1;
+            if (a.name === "<system>")
+                return 1;
+            if (b.name === "<system>")
+                return -1;
+            return a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1;
         });
     });
 
     currentConnectedResource: resource;
     currentAlert = ko.observable<alertArgs>();
     queuedAlert: alertArgs;
-	static clusterMode = ko.observable<boolean>(false);
-	isInCluster = ko.computed(() => shell.clusterMode());
+    static clusterMode = ko.observable<boolean>(false);
+    isInCluster = ko.computed(() => shell.clusterMode());
     serverBuildVersion = ko.observable<serverBuildVersionDto>();
+    static serverMainVersion = ko.observable<number>(4);
+    static serverMinorVersion = ko.observable<number>(5);
     clientBuildVersion = ko.observable<clientBuildVersionDto>();
     localLicenseStatus = license.licenseStatus;
     windowHeightObservable: KnockoutObservable<number>;
@@ -154,6 +156,9 @@ class shell extends viewModelBase {
     rawUrlIsVisible = ko.computed(() => this.currentRawUrl().length > 0);
     activeArea = ko.observable<string>("Databases");
     hasReplicationSupport = ko.computed(() => !!this.activeDatabase() && this.activeDatabase().activeBundles.contains("Replication"));
+    showSplash = viewModelBase.showSplash;
+
+    static has40Features = ko.computed(() => shell.serverMainVersion() >= 4);
 
     private globalChangesApi: changesApi;
     private static changeSubscriptionArray: changeSubscription[];
@@ -171,8 +176,8 @@ class shell extends viewModelBase {
         });
         oauthContext.enterApiKeyTask = this.setupApiKey();
         oauthContext.enterApiKeyTask.done(() => {
-	        this.globalChangesApi = new changesApi(appUrl.getSystemDatabase());
-			this.notifications = this.createNotifications();
+            this.globalChangesApi = new changesApi(appUrl.getSystemDatabase());
+            this.notifications = this.createNotifications();
         });
 
         ko.postbox.subscribe("Alert", (alert: alertArgs) => this.showAlert(alert));
@@ -254,8 +259,9 @@ class shell extends viewModelBase {
             { route: "counterstorages/tasks*details", title: "Stats", moduleId: "viewmodels/counter/tasks/tasks", nav: true, hash: this.appUrls.counterStorageStats },
             { route: "counterstorages/stats", title: "Stats", moduleId: "viewmodels/counter/counterStorageStats", nav: true, hash: this.appUrls.counterStorageStats },
             { route: "counterstorages/configuration", title: "Configuration", moduleId: "viewmodels/counter/counterStorageConfiguration", nav: true, hash: this.appUrls.counterStorageConfiguration },
-			{ route: "counterstorages/edit", title: "Edit Counter", moduleId: "viewmodels/counter/editCounter", nav: false },
-            { route: "timeseries/series", title: "Series", moduleId: "viewmodels/timeSeries/timeSeries", nav: true, hash: this.appUrls.timeSeriesKey },
+            { route: "counterstorages/edit", title: "Edit Counter", moduleId: "viewmodels/counter/editCounter", nav: false },
+            { route: "timeseries/types", title: "Types", moduleId: "viewmodels/timeSeries/timeSeriesTypes", nav: true, hash: this.appUrls.timeSeriesType },
+            { route: "timeseries/points", title: "Points", moduleId: "viewmodels/timeSeries/timeSeriesPoints", nav: true, hash: this.appUrls.timeSeriesPoints },
             { route: "timeseries/stats", title: "Stats", moduleId: "viewmodels/timeSeries/timeSeriesStats", nav: true, hash: this.appUrls.timeSeriesStats },
             { route: "timeseries/configuration", title: "Configuration", moduleId: "viewmodels/timeSeries/timeSeriesConfiguration", nav: true, hash: this.appUrls.timeSeriesConfiguration }
         ]).buildNavigationModel();
@@ -269,8 +275,8 @@ class shell extends viewModelBase {
         var self = this;
 
         window.addEventListener("beforeunload", self.destroyChangesApi.bind(self));
-        
-        $(window).bind("storage", (e:any) => {
+
+        $(window).bind("storage", (e: any) => {
             if (e.originalEvent.key === eventSourceSettingStorage.localStorageName) {
                 if (!JSON.parse(e.originalEvent.newValue)) {
                     self.destroyChangesApi();
@@ -330,6 +336,18 @@ class shell extends viewModelBase {
     // Called by Durandal when shell.html has been put into the DOM.
     // The view must be attached to the DOM before we can hook up keyboard shortcuts.
     attached() {
+        super.attached();
+
+        var target = document.getElementById("splash-spinner");
+        //this.spinner.stop();
+        this.showSplash.subscribe((show: boolean) => {
+            if (show) {
+                this.spinner.spin(target);
+            } else {
+                this.spinner.stop();
+            }
+        });
+
         jwerty.key("ctrl+alt+n", e => {
             e.preventDefault();
             this.newDocument();
@@ -344,7 +362,7 @@ class shell extends viewModelBase {
             if (!!val && val.config.route.split('/').length == 1) //if it's a root navigation item.
                 this.activeArea(val.config.title);
         });
-        
+
         sys.error = (e) => {
             console.error(e);
             messagePublisher.reportError("Failed to load routed module!", e);
@@ -415,16 +433,16 @@ class shell extends viewModelBase {
 
     private activateTimeSeries(ts: timeSeries) {
         var changesSubscriptionArray = () => [
-            changesContext.currentResourceChangesApi().watchAllTimeSeries(() => this.fetchTimeSeriesStats(ts)),
-            changesContext.currentResourceChangesApi().watchTimeSeriesBulkOperation(() => this.fetchTimeSeriesStats(ts))
+            changesContext.currentResourceChangesApi().watchAllTimeSeries(() => this.fetchTsStats(ts)),
+            changesContext.currentResourceChangesApi().watchTimeSeriesBulkOperation(() => this.fetchTsStats(ts))
         ];
         var isNotATimeSeries = this.currentConnectedResource instanceof timeSeries === false;
-        this.updateChangesApi(ts, isNotATimeSeries, () => this.fetchTimeSeriesStats(ts), changesSubscriptionArray);
+        this.updateChangesApi(ts, isNotATimeSeries, () => this.fetchTsStats(ts), changesSubscriptionArray);
 
         shell.resources().forEach((r: resource) => r.isSelected(r instanceof timeSeries && r.name === ts.name));
     }
 
-    private fetchTimeSeriesStats(ts: timeSeries) {
+    private fetchTsStats(ts: timeSeries) {
         if (!!ts && !ts.disabled() && ts.isLicensed()) {
             new getTimeSeriesStatsCommand(ts, true)
                 .execute()
@@ -441,8 +459,8 @@ class shell extends viewModelBase {
             this.currentConnectedResource = rs;
         }
 
-        if ((!rs.disabled() && rs.isLicensed()) && 
-			(isPreviousDifferentKind || changesContext.currentResourceChangesApi() == null)) {
+        if ((!rs.disabled() && rs.isLicensed()) &&
+            (isPreviousDifferentKind || changesContext.currentResourceChangesApi() == null)) {
             // connect to changes api, if it's not disabled and the changes api isn't already connected
             var changes = new changesApi(rs, 5000);
             changes.connectToChangesApiTask.done(() => {
@@ -560,18 +578,18 @@ class shell extends viewModelBase {
                     var isNotDatabase = !(connectedResource instanceof database);
                     if (isNotDatabase && connectedResource instanceof fileSystem) {
                         resourceObservableArray = shell.fileSystems;
-                        activeResourceObservable = this.activeFilesystem;                       
+                        activeResourceObservable = this.activeFilesystem;
                     }
                     else if (isNotDatabase && connectedResource instanceof counterStorage) {
                         resourceObservableArray = shell.counterStorages;
-                        activeResourceObservable = this.activeCounterStorage; 
+                        activeResourceObservable = this.activeCounterStorage;
                     }
                     else if (isNotDatabase && connectedResource instanceof timeSeries) {
                         resourceObservableArray = shell.timeSeries;
-                        activeResourceObservable = this.activeTimeSeries; 
+                        activeResourceObservable = this.activeTimeSeries;
                     }
                     this.selectNewActiveResourceIfNeeded(resourceObservableArray, activeResourceObservable);
-            });
+                });
         }
     }
 
@@ -608,7 +626,7 @@ class shell extends viewModelBase {
 
         if (!!e.Id && (e.Type === "Delete" || e.Type === "Put")) {
             var receivedResourceName = e.Id.slice(e.Id.lastIndexOf('/') + 1);
-            
+
             if (e.Type === "Delete") {
                 var resourceToDelete = resourceObservableArray.first((rs: resource) => rs.name == receivedResourceName);
                 if (!!resourceToDelete) {
@@ -685,7 +703,7 @@ class shell extends viewModelBase {
         var isMainPage = locationHash === appUrl.forResources();
         if (isMainPage === false) {
             var updatedUrl = appUrl.forCurrentPage(rs);
-            this.navigate(updatedUrl);  
+            this.navigate(updatedUrl);
         }
     }
 
@@ -702,7 +720,7 @@ class shell extends viewModelBase {
         this.navigate(editDocUrl);
     }
 
-    private loadDatabases(): JQueryPromise<any>{
+    private loadDatabases(): JQueryPromise<any> {
         var deferred = $.Deferred();
 
         this.databasesLoadedTask = new getDatabasesCommand()
@@ -711,7 +729,7 @@ class shell extends viewModelBase {
             .done((results: database[]) => {
                 this.databasesLoaded(results);
                 this.fetchStudioConfig();
-		        this.fetchClusterTopology();
+                this.fetchClusterTopology();
                 this.fetchServerBuildVersion();
                 this.fetchClientBuildVersion();
                 this.fetchLicenseStatus();
@@ -723,7 +741,7 @@ class shell extends viewModelBase {
         return deferred;
     }
 
-    private loadFileSystems(): JQueryPromise<any>{
+    private loadFileSystems(): JQueryPromise<any> {
         var deferred = $.Deferred();
 
         new getFileSystemsCommand()
@@ -838,12 +856,12 @@ class shell extends viewModelBase {
     private handleRavenConnectionFailure(result) {
         NProgress.done();
 
-		if (result.status === 401) {
-			// Unauthorized might be caused by invalid credentials. 
-			// Remove them from both local storage and oauth context.
-			apiKeyLocalStorage.clean();
-			oauthContext.clean();
-		}
+        if (result.status === 401) {
+            // Unauthorized might be caused by invalid credentials. 
+            // Remove them from both local storage and oauth context.
+            apiKeyLocalStorage.clean();
+            oauthContext.clean();
+        }
 
         sys.log("Unable to connect to Raven.", result);
         var tryAgain = "Try again";
@@ -881,9 +899,9 @@ class shell extends viewModelBase {
         } else {
             this.currentAlert(alert);
             var fadeTime = 2000; // If there are no pending alerts, show it for 2 seconds before fading out.
-/*            if (alert.title.indexOf("Changes stream was disconnected.") == 0) {
-                fadeTime = 100000000;
-            }*/
+            /*            if (alert.title.indexOf("Changes stream was disconnected.") == 0) {
+                            fadeTime = 100000000;
+                        }*/
             if (alert.type === alertType.danger || alert.type === alertType.warning) {
                 fadeTime = 5000; // If there are pending alerts, show the error alert for 4 seconds before fading out.
             }
@@ -974,6 +992,11 @@ class shell extends viewModelBase {
             .done((serverBuildResult: serverBuildVersionDto) => {
                 this.serverBuildVersion(serverBuildResult);
 
+                var assemblyVersion = serverBuildResult.ProductVersion.split("/")[0].trim();
+                var assemblyVersionTokens = assemblyVersion.split(".");
+                shell.serverMainVersion(parseInt(assemblyVersionTokens[0]));
+                shell.serverMinorVersion(parseInt(assemblyVersionTokens[1]));
+
                 var currentBuildVersion = serverBuildResult.BuildVersion;
                 if (serverBuildReminder.isReminderNeeded() && currentBuildVersion != 13) {
                     new getLatestServerBuildVersionCommand(true, 3000, 3999) //pass false as a parameter to get the latest unstable
@@ -985,7 +1008,7 @@ class shell extends viewModelBase {
                             }
                         });
                 }
-        });
+            });
     }
 
     fetchClientBuildVersion() {
@@ -994,13 +1017,13 @@ class shell extends viewModelBase {
             .done((result: clientBuildVersionDto) => { this.clientBuildVersion(result); });
     }
 
-	fetchClusterTopology() {
-		new getClusterTopologyCommand(appUrl.getSystemDatabase())
-			.execute()
-			.done((topology: topology) => {
-				shell.clusterMode(topology.allNodes().length > 0);
-			});
-	}
+    fetchClusterTopology() {
+        new getClusterTopologyCommand(appUrl.getSystemDatabase())
+            .execute()
+            .done((topology: topology) => {
+                shell.clusterMode(topology.allNodes().length > 0);
+            });
+    }
 
     fetchLicenseStatus() {
         new getLicenseStatusCommand()
@@ -1067,15 +1090,40 @@ class shell extends viewModelBase {
         window.location.reload();
     }
 
-	navigateToClusterSettings() {
-		this.navigate(this.appUrls.adminSettingsCluster());
-	}
+    navigateToClusterSettings() {
+        this.navigate(this.appUrls.adminSettingsCluster());
+    }
+
+    private spinnerOptions = {
+        lines: 17, // The number of lines to draw
+        length: 28, // The length of each line
+        width: 14, // The line thickness
+        radius: 44, // The radius of the inner circle
+        scale: 1, // Scales overall size of the spinner
+        corners: 1, // Corner roundness (0..1)
+        color: ["#d74c0c", "#CC0000"], // #rgb or #rrggbb or array of colors
+        opacity: 0.35, // Opacity of the lines
+        rotate: 0, // The rotation offset
+        direction: 1, // 1: clockwise, -1: counterclockwise
+        speed: 0.8, // Rounds per second
+        trail: 60, // Afterglow percentage
+        fps: 20, // Frames per second when using setTimeout() as a fallback for CSS
+        zIndex: 2e9, // The z-index (defaults to 2000000000)
+        className: "spinner", // The CSS class to assign to the spinner
+        top: "50%", // Top position relative to parent
+        left: "50%", // Left position relative to parent
+        shadow: false, // Whether to render a shadow
+        hwaccel: false, // Whether to use hardware acceleration
+        position: "absolute" // Element positioning
+    };
+    private spinner = new Spinner(this.spinnerOptions);
 
     static resourcesNamesComputed(): KnockoutComputed<string[]> {
         return ko.computed(() => {
             var resourcesNames = shell.resources().map((rs: resource) => rs.name);
             return resourcesNames.distinct();
         });
-    }}
+    }
+}
 
 export = shell;

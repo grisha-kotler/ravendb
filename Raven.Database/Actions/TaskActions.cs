@@ -209,6 +209,8 @@ namespace Raven.Database.Actions
 			CounterBatchOperation,
 
 			TimeSeriesBatchOperation,
+
+			RecoverCorruptedIndexOperation,
 		}
     }
 }

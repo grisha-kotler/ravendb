@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,17 +12,18 @@ using Raven.Abstractions.Replication;
 using Raven.Abstractions.Util;
 using Raven.Bundles.Replication.Tasks;
 using Raven.Client;
+using Raven.Client.Connection;
 using Raven.Client.Document;
 using Raven.Client.Indexes;
 using Raven.Database.Config;
 using Raven.Json.Linq;
+using Raven.Tests.Common;
 using Raven.Tests.Helpers;
-
 using Xunit;
 
 namespace Raven.Tests.Replication
 {
-	public class IndexReplication : RavenTestBase
+	public class IndexReplication : ReplicationBase
 	{
 		protected override void ModifyConfiguration(InMemoryRavenConfiguration configuration)
 		{
@@ -43,10 +42,10 @@ namespace Raven.Tests.Replication
 			public UserIndex()
 			{
 				Map = users => from user in users
-					select new
-					{
-						user.Name
-					};
+							   select new
+							   {
+								   user.Name
+							   };
 			}
 		}
 
@@ -67,10 +66,10 @@ namespace Raven.Tests.Replication
 			public YetAnotherUserIndex()
 			{
 				Map = users => from user in users
-					select new
-					{
-						user.Name
-					};
+							   select new
+							   {
+								   user.Name
+							   };
 			}
 		}
 
@@ -147,9 +146,20 @@ namespace Raven.Tests.Replication
 				source.DatabaseCommands.ForDatabase("testDB").PutIndex(anotherUserIndex.IndexName, anotherUserIndex.CreateIndexDefinition());
 				source.DatabaseCommands.ForDatabase("testDB").PutIndex(yetAnotherUserIndex.IndexName, yetAnotherUserIndex.CreateIndexDefinition());
 
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
+
+
 				var sourceDB = await sourceServer.Server.GetDatabaseInternal("testDB");
 				var replicationTask = sourceDB.StartupTasks.OfType<ReplicationTask>().First();
-				SpinWait.SpinUntil(() => replicationTask.ReplicateIndexesAndTransformersTask(null));
+				SpinWait.SpinUntil(() => replicationTask.IndexReplication.Execute());
 
 				var expectedIndexNames = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase) { userIndex.IndexName, anotherUserIndex.IndexName, yetAnotherUserIndex.IndexName };
 				var indexStatsAfterReplication1 = destination1.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes.Select(x => x.Name);
@@ -160,10 +170,10 @@ namespace Raven.Tests.Replication
 
 				var indexStatsAfterReplication2 = destination2.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes.Select(x => x.Name);
 				expectedIndexNames.Should().BeEquivalentTo(indexStatsAfterReplication2);
-			}					
+			}
 		}
 
-		[Fact] 
+		[Fact]
 		public async Task Should_send_last_queried_index_time_periodically()
 		{
 			using (var sourceServer = GetNewServer(8077))
@@ -195,18 +205,28 @@ namespace Raven.Tests.Replication
 
 				using (var session = source.OpenSession("testDB"))
 				{
-// ReSharper disable ReturnValueOfPureMethodIsNotUsed
+					// ReSharper disable ReturnValueOfPureMethodIsNotUsed
 					session.Query<UserIndex>(userIndex.IndexName).ToList(); //update last queried time
 					session.Query<AnotherUserIndex>(anotherUserIndex.IndexName).ToList(); //update last queried time
 					session.Query<YetAnotherUserIndex>(yetAnotherUserIndex.IndexName).ToList(); //update last queried time
-// ReSharper restore ReturnValueOfPureMethodIsNotUsed
+					// ReSharper restore ReturnValueOfPureMethodIsNotUsed
 
 					session.SaveChanges();
 				}
 
 				var sourceDB = await sourceServer.Server.GetDatabaseInternal("testDB");
-				var replicationTask = sourceDB.StartupTasks.OfType<ReplicationTask>().First(); 
-				replicationTask.SendLastQueriedTask(null);
+				var replicationTask = sourceDB.StartupTasks.OfType<ReplicationTask>().First();
+				replicationTask.IndexReplication.SendLastQueried();
+
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
 
 				var indexNames = new[] { userIndex.IndexName, anotherUserIndex.IndexName, yetAnotherUserIndex.IndexName };
 
@@ -230,7 +250,7 @@ namespace Raven.Tests.Replication
 				Assert.Equal(sourceIndexStats.First(x => x.Name == userIndex.IndexName).LastQueryTimestamp, destination3IndexStats.First(x => x.Name == userIndex.IndexName).LastQueryTimestamp);
 				Assert.Equal(sourceIndexStats.First(x => x.Name == anotherUserIndex.IndexName).LastQueryTimestamp, destination3IndexStats.First(x => x.Name == anotherUserIndex.IndexName).LastQueryTimestamp);
 				Assert.Equal(sourceIndexStats.First(x => x.Name == yetAnotherUserIndex.IndexName).LastQueryTimestamp, destination3IndexStats.First(x => x.Name == yetAnotherUserIndex.IndexName).LastQueryTimestamp);
-	
+
 			}
 		}
 
@@ -271,8 +291,17 @@ namespace Raven.Tests.Replication
 					Url = source.Url
 				});
 
-				replicationRequest.ExecuteRequest();				
+				replicationRequest.ExecuteRequest();
 
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
 
 				var expectedIndexNames = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase) { userIndex.IndexName, anotherUserIndex.IndexName, yetAnotherUserIndex.IndexName };
 				var indexStatsAfterReplication1 = destination1.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes.Select(x => x.Name);
@@ -330,6 +359,10 @@ namespace Raven.Tests.Replication
 				replicationRequest.Write(RavenJObject.FromObject(destinationDocuments[1]));
 				replicationRequest.ExecuteRequest();
 
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
+
 				var expectedIndexNames = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase) { userIndex.IndexName, anotherUserIndex.IndexName, yetAnotherUserIndex.IndexName };
 				var indexStatsAfterReplication1 = destination1.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes.Select(x => x.Name);
 				var indexStatsAfterReplication2 = destination2.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes.Select(x => x.Name);
@@ -380,11 +413,18 @@ namespace Raven.Tests.Replication
 				});
 				replicationRequest.ExecuteRequest();
 
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
+
 				var expectedIndexNames = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase) { userIndex.IndexName, anotherUserIndex.IndexName, yetAnotherUserIndex.IndexName };
 				var indexStatsAfterReplication1 = destination1.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes.Select(x => x.Name);
 				expectedIndexNames.Should().BeEquivalentTo(indexStatsAfterReplication1);
 
 
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), anotherUserIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), yetAnotherUserIndex.IndexName);
 				var indexStatsAfterReplication3 = destination3.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes.Select(x => x.Name);
 				expectedIndexNames.Should().BeEquivalentTo(indexStatsAfterReplication3);
 
@@ -416,7 +456,7 @@ namespace Raven.Tests.Replication
 				source.Conventions.IndexAndTransformerReplicationMode = IndexAndTransformerReplicationMode.None;
 				// ReSharper disable once AccessToDisposedClosure
 				SetupReplication(source, "testDB", store => store == destination2, destination1, destination2, destination3);
-			
+
 				//make sure not to replicate the index automatically
 				var userIndex = new UserIndex();
 				source.DatabaseCommands.ForDatabase("testDB").PutIndex(userIndex.IndexName, userIndex.CreateIndexDefinition());
@@ -428,6 +468,9 @@ namespace Raven.Tests.Replication
 				});
 				replicationRequest.ExecuteRequest();
 
+				WaitForIndexToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+	
 				var indexStatsAfterReplication = destination1.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes;
 				Assert.True(indexStatsAfterReplication.Any(index => index.Name.Equals(userIndex.IndexName, StringComparison.InvariantCultureIgnoreCase)));
 
@@ -450,17 +493,19 @@ namespace Raven.Tests.Replication
 			{
 				CreateDatabaseWithReplication(source, "testDB");
 				CreateDatabaseWithReplication(destination, "testDB");
-				
+
 				SetupReplication(source, "testDB", destination);
 
 				var userIndex = new UserIndex();
 
 				var indexStatsBeforeReplication = destination.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes;
 				Assert.False(indexStatsBeforeReplication.Any(index => index.Name.Equals(userIndex.IndexName, StringComparison.InvariantCultureIgnoreCase)));
-				
+
 				//this should fire http request to index replication endpoint -> so the index is replicated
 				userIndex.Execute(source.DatabaseCommands.ForDatabase("testDB"), source.Conventions);
-			
+
+				WaitForIndexToReplicate(destination.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+
 				var indexStatsAfterReplication = destination.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes;
 				Assert.True(indexStatsAfterReplication.Any(index => index.Name.Equals(userIndex.IndexName, StringComparison.InvariantCultureIgnoreCase)));
 			}
@@ -524,7 +569,9 @@ namespace Raven.Tests.Replication
 				});
 				replicationRequest.ExecuteRequest();
 
-				var indexStatsAfterReplication = destination.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes;				
+				WaitForIndexToReplicate(destination.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+
+				var indexStatsAfterReplication = destination.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes;
 				Assert.True(indexStatsAfterReplication.Any(index => index.Name.Equals(userIndex.IndexName, StringComparison.InvariantCultureIgnoreCase)));
 			}
 		}
@@ -541,7 +588,7 @@ namespace Raven.Tests.Replication
 			using (var destinationServer3 = GetNewServer(8081))
 			using (var destination3 = NewRemoteDocumentStore(ravenDbServer: destinationServer3))
 			{
-		
+
 
 				CreateDatabaseWithReplication(source, "testDB");
 				CreateDatabaseWithReplication(destination1, "testDB");
@@ -559,8 +606,8 @@ namespace Raven.Tests.Replication
 
 				var sourceDB = await sourceServer.Server.GetDatabaseInternal("testDB");
 				var replicationTask = sourceDB.StartupTasks.OfType<ReplicationTask>().First();
-				replicationTask.TimeToWaitBeforeSendingDeletesOfIndexesToSiblings = TimeSpan.Zero;
-				SpinWait.SpinUntil(() => replicationTask.ReplicateIndexesAndTransformersTask(null));
+				replicationTask.IndexReplication.TimeToWaitBeforeSendingDeletesOfIndexesToSiblings = TimeSpan.Zero;
+				SpinWait.SpinUntil(() => replicationTask.IndexReplication.Execute());
 
 				var expectedIndexNames = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase) { userIndex.IndexName };
 				var indexStatsAfterReplication1 = destination1.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes.Select(x => x.Name).ToArray();
@@ -576,8 +623,12 @@ namespace Raven.Tests.Replication
 
 				//the index is now replicated on all servers.
 				//now delete the index and verify that deletion is replicated
-				SpinWait.SpinUntil(() => replicationTask.ReplicateIndexesAndTransformersTask(null));
+				SpinWait.SpinUntil(() => replicationTask.IndexReplication.Execute());
 
+				WaitForIndexDeletionToReplicate(destination1.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexDeletionToReplicate(destination2.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				WaitForIndexDeletionToReplicate(destination3.DatabaseCommands.ForDatabase("testDB"), userIndex.IndexName);
+				
 
 				indexStatsAfterReplication1 = destination1.DatabaseCommands.ForDatabase("testDB").GetStatistics().Indexes.Select(x => x.Name).ToArray();
 				Assert.Empty(indexStatsAfterReplication1);

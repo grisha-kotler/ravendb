@@ -250,13 +250,13 @@ namespace Raven.Database.Server.Controllers
 			return GetQueryStringValue(InnerRequest, key);
 		}
 
-	/*	public static string GetQueryStringValue(HttpRequestMessage req, string key)
-		{
-			var value = req.GetQueryNameValuePairs().Where(pair => pair.Key == key).Select(pair => pair.Value).FirstOrDefault();
-			if (value != null)
-				value = Uri.UnescapeDataString(value);
-			return value;
-		}*/	 
+//		public static string GetQueryStringValue(HttpRequestMessage req, string key)
+//		{
+//			var value = req.GetQueryNameValuePairs().Where(pair => pair.Key == key).Select(pair => pair.Value).FirstOrDefault();
+//			if (value != null)
+//				value = Uri.UnescapeDataString(value);
+//			return value;
+//		}
 
 	    protected static string GetQueryStringValue(HttpRequestMessage req, string key)
         {
@@ -268,13 +268,26 @@ namespace Raven.Database.Server.Controllers
                 return nvc[key];
             }
             nvc = HttpUtility.ParseQueryString(req.RequestUri.Query);
-	        
-			foreach (var queryKey in nvc.AllKeys)
-				nvc[queryKey] = UnescapeStringIfNeeded(nvc[queryKey]);
-
-	        req.Properties["Raven.QueryString"] = nvc;
+		    if (!ClientIsV3OrHigher(req))
+		    {
+			    foreach (var queryKey in nvc.AllKeys)
+				    nvc[queryKey] = UnescapeStringIfNeeded(nvc[queryKey]);
+		    }
+		    req.Properties["Raven.QueryString"] = nvc;
             return nvc[key];
         }
+		protected static bool ClientIsV3OrHigher(HttpRequestMessage req)
+		{
+			IEnumerable<string> values;
+			if (req.Headers.TryGetValues("Raven-Client-Version", out values) == false)
+				return false; // probably 1.0 client?
+			foreach (var value in values)
+			{
+				if (string.IsNullOrEmpty(value) ) return false;
+				if (value[0] == '1' || value[0] == '2') return false;
+			}
+			return true;
+		}
 
 	    protected string[] GetQueryStringValues(string key)
 		{
@@ -351,7 +364,8 @@ namespace Raven.Database.Server.Controllers
                         }
 						else
 						{
-							var value = UnescapeStringIfNeeded(header.Value.ToString(Formatting.None));
+							//headers do not need url decoding because they might contain special symbols (like + symbol in clr type)
+							var value = UnescapeStringIfNeeded(header.Value.ToString(Formatting.None), shouldDecodeUrl: false);
 							msg.Content.Headers.Add(header.Key, value);
 						}
 						break;
@@ -397,7 +411,7 @@ namespace Raven.Database.Server.Controllers
 			return obj.ToString();
 		}
 
-		private static string UnescapeStringIfNeeded(string str)
+		private static string UnescapeStringIfNeeded(string str, bool shouldDecodeUrl = true)
 		{
 			if (str.StartsWith("\"") && str.EndsWith("\""))
 				str = Regex.Unescape(str.Substring(1, str.Length - 2));
@@ -407,15 +421,7 @@ namespace Raven.Database.Server.Controllers
 				return Uri.EscapeDataString(str);
 			}
 
-			//because the string can be encoded multiple times, try to decode with loop
-			var tmp = String.Empty;
-			while (tmp.Equals(str) == false)
-			{
-				tmp = str;
-				str = HttpUtility.UrlDecode(str);
-			}
-			
-			return HttpUtility.UrlDecode(str);
+			return shouldDecodeUrl ? HttpUtility.UrlDecode(str) : str;
 		}
 
 		public virtual HttpResponseMessage GetMessageWithObject(object item, HttpStatusCode code = HttpStatusCode.OK, Etag etag = null)

@@ -290,6 +290,7 @@ class editDocument extends viewModelBase {
 
     // Called when the view is attached to the DOM.
     attached() {
+		super.attached();
         this.setupKeyboardShortcuts();
         $("#docEditor").resize();
         this.isNewLineFriendlyMode.subscribe(val => {
@@ -820,8 +821,9 @@ class editDocument extends viewModelBase {
                 .slice(0, 5)
                 .map((docId: string) => {
                     return {
-                        docId: docId,
-                        docUrl: appUrl.forEditDoc(docId, null, null, this.activeDatabase())
+                        docId: (docId.length > 35) ? docId.substr(0,35) + '...' : docId,
+                        docUrl: appUrl.forEditDoc(docId, null, null, this.activeDatabase()),
+                        fullDocId : docId 
                     };
                 });
             return value;

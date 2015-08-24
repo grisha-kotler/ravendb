@@ -1,10 +1,10 @@
 ﻿/*import commandBase = require("commands/commandBase");
 import pointChange = require("models/timeSeries/timeSeriesChange");
-import timeSeries = require("models/timeSeries/timeSeriesDocument");
+import timeSeries = require("models/timeSeries/timeSeries");
 
 class addPointCommand extends commandBase {
 
-    constructor(private ts: timeSeries, private prefix: string, private key: string, private at: number, private values: number[]) {
+    constructor(private ts: timeSeries, private type: string, private key: string, private at: number, private values: number[]) {
         super();
     }
 

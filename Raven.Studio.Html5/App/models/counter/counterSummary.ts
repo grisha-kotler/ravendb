@@ -1,32 +1,37 @@
 ﻿class counterSummary implements documentBase {
-    static separator = "/";
-    //Id: string;
-    Group: string;
-    Name: string;
+	static groupNameField = "Group Name";
+	static counterNameField = "Counter Name";
     Total: number; 
 
     constructor(dto: counterSummaryDto) {
-        //this.Id = dto.Group + counterSummary.separator + dto.CounterName;
-        this.Group = dto.Group;
-        this.Name = dto.CounterName;
+	    this[counterSummary.groupNameField] = dto.GroupName;
+	    this[counterSummary.counterNameField] = dto.CounterName;
         this.Total = dto.Total;
     }
 
     getEntityName() {
-        return this.Group;
+        return this[counterSummary.groupNameField];
     }
 
     getDocumentPropertyNames(): Array<string> {
-        return [ "Group", "Name", "Total"];
+	    return [counterSummary.groupNameField, counterSummary.counterNameField, "Total"];
     }
 
     getId() {
-        return this.Name;
+        return this[counterSummary.counterNameField];
     }
 
     getUrl() {
         return this.getId();
     }
+
+	getGroupName() {
+		return this[counterSummary.groupNameField];
+	}
+
+	getCounterName() {
+		return this[counterSummary.counterNameField];
+	}
 } 
 
 export = counterSummary;

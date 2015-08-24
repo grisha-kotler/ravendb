@@ -32,6 +32,7 @@ using Raven.Database.Server.Connections;
 using Raven.Database.FileSystem;
 using Raven.Database.Server.Security;
 using Raven.Database.Server.WebApi.Attributes;
+using Raven.Database.Tasks;
 using Raven.Database.Util;
 using Raven.Imports.Newtonsoft.Json;
 using Raven.Json.Linq;
@@ -432,7 +433,6 @@ namespace Raven.Database.Server.Controllers.Admin
 				foreach (var destination in replicationDocument.Destinations)
 				{
 					destination.Disabled = true;
-					destination.SourceCollections = new string[0];
 				}
 
 				database
@@ -533,6 +533,11 @@ namespace Raven.Database.Server.Controllers.Admin
 		public HttpResponseMessage ForceLicenseUpdate()
 		{
 			Database.ForceLicenseUpdate();
+            DatabasesLandlord.ForAllDatabases(database =>
+            {
+                database.WorkContext.ShouldNotifyAboutWork(() => "License update");
+                database.WorkContext.NotifyAboutWork();
+            });
 			return GetEmptyMessage();
 		}
 
@@ -664,7 +669,7 @@ namespace Raven.Database.Server.Controllers.Admin
 			if (string.IsNullOrEmpty(concurrency) == false)
 				Database.Configuration.MaxNumberOfParallelProcessingTasks = Math.Max(1, int.Parse(concurrency));
 
-			Database.SpinBackgroundWorkers();
+			Database.SpinBackgroundWorkers(true);
 		}
 
 		[HttpPost]
@@ -672,7 +677,7 @@ namespace Raven.Database.Server.Controllers.Admin
 		[RavenRoute("databases/{databaseName}/admin/stopIndexing")]
 		public void StopIndexing()
 		{
-			Database.StopIndexingWorkers();
+			Database.StopIndexingWorkers(true);
 		}
 
 		[HttpGet]
@@ -789,8 +794,11 @@ namespace Raven.Database.Server.Controllers.Admin
 		[RavenRoute("databases/{databaseName}/admin/detailed-storage-breakdown")]
 		public HttpResponseMessage DetailedStorageBreakdown()
 		{
-			var x = Database.TransactionalStorage.ComputeDetailedStorageInformation();
-			return GetMessageWithObject(x);
+			var detailedReport = GetQueryStringValue("DetailedReport");
+			bool isDetailedReport;
+			if (detailedReport != null && bool.TryParse(detailedReport, out isDetailedReport) && isDetailedReport)
+				return GetMessageWithObject(Database.TransactionalStorage.ComputeDetailedStorageInformation(true));
+			return GetMessageWithObject(Database.TransactionalStorage.ComputeDetailedStorageInformation());
 		}
 
 		[HttpPost]
@@ -870,7 +878,7 @@ namespace Raven.Database.Server.Controllers.Admin
 		[RavenRoute("admin/debug/info-package")]
 		public HttpResponseMessage InfoPackage()
 		{
-			var tempFileName = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+			var tempFileName = Path.Combine(Database.Configuration.TempPath, Path.GetRandomFileName());
 			try
 			{
 				var jsonSerializer = JsonExtensions.CreateDefaultJsonSerializer();
@@ -921,7 +929,7 @@ namespace Raven.Database.Server.Controllers.Admin
 			}
 		}
 
-		private static void DumpStacktrace(ZipArchive package)
+		private void DumpStacktrace(ZipArchive package)
 		{
 			var stacktrace = package.CreateEntry("stacktraces.txt", CompressionLevel.Optimal);
 
@@ -936,7 +944,7 @@ namespace Raven.Database.Server.Controllers.Admin
 				{
 					if (Debugger.IsAttached) throw new InvalidOperationException("Cannot get stacktraces when debugger is attached");
 
-					ravenDebugDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+					ravenDebugDir = Path.Combine(Database.Configuration.TempPath, Path.GetRandomFileName());
 					var ravenDebugExe = Path.Combine(ravenDebugDir, "Raven.Debug.exe");
 					var ravenDebugOutput = Path.Combine(ravenDebugDir, "stacktraces.txt");
 
@@ -945,14 +953,35 @@ namespace Raven.Database.Server.Controllers.Admin
 					if (Environment.Is64BitProcess) ExtractResource("Raven.Database.Util.Raven.Debug.x64.Raven.Debug.exe", ravenDebugExe);
 					else ExtractResource("Raven.Database.Util.Raven.Debug.x86.Raven.Debug.exe", ravenDebugExe);
 
-					var process = new Process { StartInfo = new ProcessStartInfo { Arguments = string.Format("-pid={0} /stacktrace -output={1}", Process.GetCurrentProcess().Id, ravenDebugOutput), FileName = ravenDebugExe, WindowStyle = ProcessWindowStyle.Hidden, } };
+					var process = new Process
+					{
+						StartInfo = new ProcessStartInfo
+						{
+							Arguments = string.Format("--pid={0} --stacktrace --output=\"{1}\"", Process.GetCurrentProcess().Id, ravenDebugOutput),
+							FileName = ravenDebugExe,
+							WindowStyle = ProcessWindowStyle.Normal,
+							LoadUserProfile = true,
+							RedirectStandardError = true,
+							RedirectStandardOutput = true,
+							UseShellExecute = false
+						},
+						EnableRaisingEvents = true
+					};
+
+					var output = string.Empty;
+
+					process.OutputDataReceived += (sender, args) => output += args.Data;
+					process.ErrorDataReceived += (sender, args) => output += args.Data;
 
 					process.Start();
+
+					process.BeginErrorReadLine();
+					process.BeginOutputReadLine();
 
 					process.WaitForExit();
 
 					if (process.ExitCode != 0)
-						throw new InvalidOperationException("Raven.Debug exit code is: " + process.ExitCode);
+						throw new InvalidOperationException("Raven.Debug exit code is: " + process.ExitCode + Environment.NewLine + "Message: " + output);
 
 					using (var stackDumpOutputStream = File.Open(ravenDebugOutput, FileMode.Open))
 					{
@@ -1187,6 +1216,29 @@ namespace Raven.Database.Server.Controllers.Admin
 			MemoryStatistics.SimulateLowMemoryNotification();
 
 			return GetEmptyMessage();
+		}
+
+		[HttpGet]
+		[RavenRoute("admin/low-memory-handlers-statistics")]
+		public HttpResponseMessage GetLowMemoryStatistics()
+		{
+			if (EnsureSystemDatabase() == false)
+				return GetMessageWithString("Low memory simulation is only possible from the system database", HttpStatusCode.BadRequest);
+
+			return GetMessageWithObject(MemoryStatistics.GetLowMemoryHandlersStatistics().GroupBy(x=>x.DatabaseName).Select(x=> new
+			{
+				DatabaseName = x.Key,
+				Types = x.GroupBy(y=>y.Name).Select(y=> new
+				{
+					MemoryHandlerName = y.Key,
+					MemoryHandlers = y.Select(z=> new {
+					z.EstimatedUsedMemory,
+					z.Metadata
+					})
+				})
+			}));
+
+			
 		}
 	}
 }

@@ -19,9 +19,6 @@ class commandBase {
     static loadingCounter = 0;
     static biggestTimeToAlert = 0;
 
-    constructor() {
-    }
-
     execute<T>(): JQueryPromise<T> {
         throw new Error("Execute must be overridden.");
     }

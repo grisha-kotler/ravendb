@@ -103,11 +103,12 @@ class counters extends viewModelBase {
 
 
     attached() {
-        /*super.createKeyboardShortcut("F2", () => this.editSelectedCounter(), counters.gridSelector);*/
+	    super.attached();
+	    /*super.createKeyboardShortcut("F2", () => this.editSelectedCounter(), counters.gridSelector);*/
 
-        // Q. Why do we have to setup the grid shortcuts here, when the grid already catches these shortcuts?
-        // A. Because if the focus isn't on the grid, but on the docs page itself, we still need to catch the shortcuts.
-        /*var docsPageSelector = ".documents-page";
+	    // Q. Why do we have to setup the grid shortcuts here, when the grid already catches these shortcuts?
+	    // A. Because if the focus isn't on the grid, but on the docs page itself, we still need to catch the shortcuts.
+	    /*var docsPageSelector = ".documents-page";
         this.createKeyboardShortcut("DELETE", () => this.getDocumentsGrid().deleteSelectedItems(), docsPageSelector);
         this.createKeyboardShortcut("Ctrl+C, D", () => this.copySelectedDocs(), docsPageSelector);
         this.createKeyboardShortcut("Ctrl+C, I", () => this.copySelectedDocIds(), docsPageSelector);*/
@@ -183,7 +184,7 @@ class counters extends viewModelBase {
             var counterData = grid.getSelectedItems(1).first();
             var dto = {
                 CurrentValue: counterData.Total,
-                Group: counterData.Group,
+                GroupName: counterData.Group,
                 CounterName: counterData.Name,
                 Delta: 0
             };

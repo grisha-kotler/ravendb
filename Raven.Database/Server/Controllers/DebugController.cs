@@ -9,6 +9,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web.Http;
 using System.Web.Http.Controllers;
@@ -16,6 +17,7 @@ using System.Web.Http.Routing;
 using ICSharpCode.NRefactory.CSharp;
 
 using Raven.Abstractions;
+using Raven.Abstractions.Counters;
 using Raven.Abstractions.Data;
 using Raven.Abstractions.Logging;
 using Raven.Abstractions.Util;
@@ -35,6 +37,72 @@ namespace Raven.Database.Server.Controllers
 	public class DebugController : RavenDbApiController
 	{
 
+		public class CounterDebugInfo
+		{
+			public int ReplicationActiveTasksCount { get; set; }
+
+			public IDictionary<string,CounterDestinationStats> ReplicationDestinationStats { get; set; }
+
+			public CounterStorageStats Summary { get; set; }
+
+			public DateTime LastWrite { get; set; }
+
+			public Guid ServerId { get; set; }
+
+			public AtomicDictionary<object> ExtensionsState { get; set; }
+		}
+
+		[HttpGet]
+		[RavenRoute("cs/debug/counter-storages")]
+		public HttpResponseMessage GetCounterStoragesInfo()
+		{
+			var infos = new List<CounterDebugInfo>();
+
+			CountersLandlord.ForAllCounters(counterStorage => 
+				infos.Add(new CounterDebugInfo
+				{
+					ReplicationActiveTasksCount = counterStorage.ReplicationTask.GetActiveTasksCount(),
+					ReplicationDestinationStats = counterStorage.ReplicationTask.DestinationStats,
+					LastWrite = counterStorage.LastWrite,
+					ServerId = counterStorage.ServerId,
+					Summary = counterStorage.CreateStats(),
+					ExtensionsState = counterStorage.ExtensionsState
+				}));
+
+			return GetMessageWithObject(infos);
+		}
+
+		[HttpGet]
+		[RavenRoute("cs/{counterStorageName}/debug/")]
+		public async Task<HttpResponseMessage> GetCounterNames(string counterStorageName)
+		{
+			var counter = await CountersLandlord.GetCounterInternal(counterStorageName);
+			if (counter == null)
+				return GetMessageWithString(string.Format("Counter storage with name {0} not found.", counterStorageName),HttpStatusCode.NotFound);
+
+			using (var reader = counter.CreateReader())
+			{
+				var groupsAndNames = reader.GetCounterGroups().SelectMany(group => reader.GetCountersSummary(group.Name));					
+
+				return GetMessageWithObject(new
+				{
+					Stats = counter.CreateStats(),
+					GroupsAndNames = groupsAndNames
+				});
+			}
+		}
+
+		[HttpGet]
+		[RavenRoute("cs/{counterStorageName}/debug/metrics")]
+		public async Task<HttpResponseMessage> GetCounterMetrics(string counterStorageName)
+		{
+			var counter = await CountersLandlord.GetCounterInternal(counterStorageName);
+			if (counter == null)
+				return GetMessageWithString(string.Format("Counter storage with name {0} not found.", counterStorageName), HttpStatusCode.NotFound);
+
+			return GetMessageWithObject(counter.CreateMetrics());
+		}
+
 		[HttpGet]
 		[RavenRoute("debug/cache-details")]
 		[RavenRoute("databases/{databaseName}/debug/cache-details")]
@@ -49,7 +117,14 @@ namespace Raven.Database.Server.Controllers
 		public HttpResponseMessage EnableQueryTiming()
 		{
 			var time = SystemTime.UtcNow + TimeSpan.FromMinutes(5);
-			Database.WorkContext.ShowTimingByDefaultUntil = time;
+			if (Database.IsSystemDatabase())
+			{
+				DatabasesLandlord.ForAllDatabases(database => database.WorkContext.ShowTimingByDefaultUntil = time);
+			}
+			else
+			{
+				Database.WorkContext.ShowTimingByDefaultUntil = time;
+			}
 			return GetMessageWithObject(new { Enabled = true, Until = time });
 		}
 
@@ -58,7 +133,14 @@ namespace Raven.Database.Server.Controllers
 		[RavenRoute("databases/{databaseName}/debug/disable-query-timing")]
 		public HttpResponseMessage DisableQueryTiming()
 		{
-			Database.WorkContext.ShowTimingByDefaultUntil = null;
+			if (Database.IsSystemDatabase())
+			{
+				DatabasesLandlord.ForAllDatabases(database => database.WorkContext.ShowTimingByDefaultUntil = null);
+			}
+			else
+			{
+				Database.WorkContext.ShowTimingByDefaultUntil = null;
+			}
 			return GetMessageWithObject(new { Enabled = false });
 		}
 
@@ -83,7 +165,7 @@ namespace Raven.Database.Server.Controllers
 			}
 			catch (InvalidOperationException e)
 			{
-				Log.Debug("Failed to deserialize debug request. Error: " + e);
+				Log.DebugException("Failed to deserialize debug request.", e);
 				return GetMessageWithObject(new
 				{
 					Message = "Could not understand json, please check its validity."
@@ -92,7 +174,7 @@ namespace Raven.Database.Server.Controllers
 			}
 			catch (InvalidDataException e)
 			{
-				Log.Debug("Failed to deserialize debug request. Error: " + e);
+				Log.DebugException("Failed to deserialize debug request." , e);
 				return GetMessageWithObject(new
 				{
 					e.Message
@@ -267,25 +349,33 @@ namespace Raven.Database.Server.Controllers
 			}
 		}
 
+		[HttpGet]
+		[RavenRoute("debug/filtered-out-indexes")]
+		[RavenRoute("databases/{databaseName}/debug/filtered-out-indexes")]
+		public HttpResponseMessage FilteredOutIndexes()
+		{
+			return GetMessageWithObject(Database.WorkContext.RecentlyFilteredOutIndexes.ToArray());
+		}
 
 		[HttpGet]
 		[RavenRoute("debug/indexing-batch-stats")]
 		[RavenRoute("databases/{databaseName}/debug/indexing-batch-stats")]
-		public HttpResponseMessage IndexingBatchStats()
+		public HttpResponseMessage IndexingBatchStats(int lastId = 0)
 		{
+			
 			var indexingBatches = Database.WorkContext.LastActualIndexingBatchInfo.ToArray();
-
-			return GetMessageWithObject(indexingBatches);
+			var indexingBatchesTrimmed = indexingBatches.SkipWhile(x => x.Id < lastId).ToArray();
+			return GetMessageWithObject(indexingBatchesTrimmed);
 		}
 
 		[HttpGet]
 		[RavenRoute("debug/reducing-batch-stats")]
 		[RavenRoute("databases/{databaseName}/debug/reducing-batch-stats")]
-		public HttpResponseMessage ReducingBatchStats()
+		public HttpResponseMessage ReducingBatchStats(int lastId = 0)
 		{
 			var reducingBatches = Database.WorkContext.LastActualReducingBatchInfo.ToArray();
-
-			return GetMessageWithObject(reducingBatches);
+			var reducingBatchesTrimmed = reducingBatches.SkipWhile(x => x.Id < lastId).ToArray();
+			return GetMessageWithObject(reducingBatchesTrimmed);
 		}
 
 		[HttpGet]
@@ -469,6 +559,7 @@ namespace Raven.Database.Server.Controllers
 				Results = results
 			});
 		}
+
         //DumpAllReferancesToCSV
 		[HttpGet]
 		[RavenRoute("debug/d0crefs-t0ps")]
@@ -736,6 +827,23 @@ namespace Raven.Database.Server.Controllers
 		}
 
 		[HttpGet]
+		[RavenRoute("debug/remaining-reductions")]
+		[RavenRoute("databases/{databaseName}/debug/remaining-reductions")]
+		public HttpResponseMessage CurrentlyRemainingReductions()
+		{
+			return GetMessageWithObject(Database.GetRemainingScheduledReductions());
+		}
+
+		[HttpGet]
+		[RavenRoute("debug/clear-remaining-reductions")]
+		[RavenRoute("databases/{databaseName}/debug/clear-remaining-reductions")]
+		public HttpResponseMessage ResetRemainingReductionsTracking()
+		{
+		    Database.TransactionalStorage.ResetScheduledReductionsTracking();
+		    return GetEmptyMessage();
+		}
+
+		[HttpGet]
 		[RavenRoute("debug/request-tracing")]
 		[RavenRoute("databases/{databaseName}/debug/request-tracing")]
 		public HttpResponseMessage RequestTracing()
@@ -777,7 +885,7 @@ namespace Raven.Database.Server.Controllers
 				return GetEmptyMessage(HttpStatusCode.Forbidden);
 			}
 
-			var tempFileName = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+			var tempFileName = Path.Combine(Database.Configuration.TempPath, Path.GetRandomFileName());
 			try
 			{
 				using (var file = new FileStream(tempFileName, FileMode.Create))
@@ -857,6 +965,13 @@ namespace Raven.Database.Server.Controllers
 		public HttpResponseMessage IndexingPerfStats()
 		{
 			return GetMessageWithObject(Database.IndexingPerformanceStatistics);
+		}
+
+		[HttpGet]
+		[RavenRoute("debug/gc-info")]
+		public HttpResponseMessage GCInfo()
+		{
+			return GetMessageWithObject(new GCInfo {LastForcedGCTime = RavenGC.LastForcedGCTime, MemoryBeforeLastForcedGC = RavenGC.MemoryBeforeLastForcedGC, MemoryAfterLastForcedGC = RavenGC.MemoryAfterLastForcedGC});
 		}
 	}
 

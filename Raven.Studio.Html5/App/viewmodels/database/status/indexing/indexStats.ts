@@ -37,10 +37,14 @@ class indexStats extends viewModelBase {
     }
 
     attached() {
+		super.attached();
         $("#indexStatsContainer").resize().on('DynamicHeightSet', () => this.onWindowHeightChanged());
         $("#indexStatsContainer").scroll(() => this.graphScrolled());
-        this.refresh();
         this.refreshSubscription = this.refreshGraphObservable.throttle(5000).subscribe((e) => this.refresh());
+    }
+
+    compositionComplete() {
+        this.refresh();
     }
 
     createNotifications(): Array<changeSubscription> {

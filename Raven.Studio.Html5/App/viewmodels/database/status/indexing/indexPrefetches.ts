@@ -21,13 +21,17 @@ class indexPrefetches extends viewModelBase {
     static prefetchesAllowZoom = false;
 
     attached() {
+		super.attached();
         indexPrefetches.prefetchesAllowZoom = false;
+    }
+
+    compositionComplete() {
         this.modelPolling();
     }
 
-    detached() {
-        super.detached();
+    canDeactivate() {
         $(window).off('resize.indexPrefetches');
+        return true;
     }
 
     modelPolling() {

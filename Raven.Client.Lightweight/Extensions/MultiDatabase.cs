@@ -62,7 +62,7 @@ namespace Raven.Client.Extensions
 
 			return new CounterStorageDocument
 			{
-				Id = Constants.Counter.Prefix + name,
+				StoreName = Constants.Counter.Prefix + name,
 				Settings =
 				{
 					{Constants.Counter.DataDirectory, Path.Combine("~", "Counters", name)},
@@ -112,6 +112,17 @@ namespace Raven.Client.Extensions
                 return databaseUrl.Substring(0, databaseUrl.Length - 1);
             return databaseUrl;
         }
+
+		public static string GetRootFileSystemUrl(string url)
+		{
+			var fileSystemUrl = url;
+			var indexOfDatabases = fileSystemUrl.IndexOf("/fs/", StringComparison.OrdinalIgnoreCase);
+			if (indexOfDatabases != -1)
+				fileSystemUrl = fileSystemUrl.Substring(0, indexOfDatabases);
+			if (fileSystemUrl.EndsWith("/"))
+				return fileSystemUrl.Substring(0, fileSystemUrl.Length - 1);
+			return fileSystemUrl;
+		}
 
         public static string GetDatabaseName(string url)
         {

@@ -95,6 +95,8 @@ class disableResourceToggleCommand extends commandBase {
     }
 
     private toggleTask(resources: Array<resource>, togglePath: string):JQueryPromise<resource[]> {
+        var _arguments = arguments;
+
         var args = {
             ids: resources.map(d => d.name),
             isSettingDisabled: this.isSettingDisabled
@@ -107,10 +109,8 @@ class disableResourceToggleCommand extends commandBase {
             .done((resourceNames: string[]) => {
                 task.resolve(resources.filter(r => resourceNames.contains(r.name)));
             })
-            .fail(() => task.reject());
+            .fail(() => task.reject(_arguments));
         return task;
-
-        
     }
 
 }

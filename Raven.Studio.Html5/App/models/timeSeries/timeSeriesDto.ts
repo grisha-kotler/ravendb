@@ -1,8 +1,19 @@
+interface timeSeriesTypeDto {
+    Type: string;
+    Fields: string[];
+    KeysCount: number;
+}
+
 interface timeSeriesKeyDto {
-    Prefix: string;
-    ValueLength: number;
+    Type: timeSeriesTypeDto;
     Key: string;
     PointsCount: number;
+}
+
+interface pointIdDto {
+    Type: string;
+    Key: string;
+    At: string;
 }
 
 interface pointDto {
@@ -16,7 +27,7 @@ interface statusDebugChangesTimeSeriesDto {
 }
 
 interface timeSeriesKeyChangeNotification {
-    Prefix: string;
+    Type: string;
     Key: string;
     Action: string;
     At: string;

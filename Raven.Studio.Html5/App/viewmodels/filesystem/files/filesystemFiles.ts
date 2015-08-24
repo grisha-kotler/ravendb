@@ -121,7 +121,8 @@ class filesystemFiles extends viewModelBase {
         }
     }
 
-    attached(view, parent) {
+    attached() {
+	    super.attached();
         this.collapseUploadQueuePanel();
     }
 
@@ -334,7 +335,7 @@ class filesystemFiles extends viewModelBase {
             if (selectedFolder == null)
                 selectedFolder = "";
 
-            var url = appUrl.forResourceQuery(this.activeFilesystem()) + "/files" + selectedFolder + "/" + selectedItem.getId();
+            var url = appUrl.forResourceQuery(this.activeFilesystem()) + "/files" + selectedFolder + "/" + encodeURIComponent(selectedItem.getId());
             window.location.assign(url);
         }
     }

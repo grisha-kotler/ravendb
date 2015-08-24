@@ -48,18 +48,24 @@ namespace Raven.Client.Counters
 			isInitialized = true;
 			InitializeSecurity();
 
-			if (ensureDefaultCounterExists && !string.IsNullOrWhiteSpace(Name))
+			if (ensureDefaultCounterExists)
 			{
 				if (String.IsNullOrWhiteSpace(Name))
 					throw new InvalidOperationException("Name is null or empty and ensureDefaultCounterExists = true --> cannot create default counter storage with empty name");
 
-				Admin.CreateCounterStorageAsync(new CounterStorageDocument
+				var existingCounterStorageNames = AsyncHelpers.RunSync(() => Admin.GetCounterStoragesNamesAsync());
+				if (!existingCounterStorageNames.Contains(Name, StringComparer.InvariantCultureIgnoreCase)) 
 				{
-					Settings = new Dictionary<string, string>
+					//this statement will essentially overwrite the counter storage, therefore it should not be called if the storage is already there
+					Admin.CreateCounterStorageAsync(new CounterStorageDocument
 					{
-						{"Raven/Counters/DataDir", @"~\Counters\" + Name}
-					},
-				}, Name).ConfigureAwait(false).GetAwaiter().GetResult();
+						StoreName = Name,
+						Settings = new Dictionary<string, string>
+						{
+							{"Raven/Counters/DataDir", @"~\Counters\" + Name}
+						},
+					}, Name).ConfigureAwait(false).GetAwaiter().GetResult();
+				}
 			}			
 
 			//need replication informer for each counter store?
@@ -133,7 +139,11 @@ namespace Raven.Client.Counters
 		
 		private HttpJsonRequest CreateHttpJsonRequest(string requestUriString, HttpMethod httpMethod, bool disableRequestCompression = false, bool disableAuthentication = false)
 		{
-			return JsonRequestFactory.CreateHttpJsonRequest(new CreateHttpJsonRequestParams(null, requestUriString, httpMethod, Credentials, CountersConvention.ShouldCacheRequest)
+			return JsonRequestFactory.CreateHttpJsonRequest(new CreateHttpJsonRequestParams(null, 
+				requestUriString, 
+				httpMethod, 
+				Credentials, 
+				CountersConvention)
 			{
 				DisableRequestCompression = disableRequestCompression,
 				DisableAuthentication = disableAuthentication
@@ -153,14 +163,12 @@ namespace Raven.Client.Counters
 			if (CountersConvention.HandleUnauthorizedResponseAsync != null)
 				return; // already setup by the user
 
-			if (string.IsNullOrEmpty(Credentials.ApiKey) == false)
-				Credentials = null;
-
 			var basicAuthenticator = new BasicAuthenticator(JsonRequestFactory.EnableBasicAuthenticationOverUnsecuredHttpEvenThoughPasswordsWouldBeSentOverTheWireInClearTextToBeStolenByHackers);
 			var securedAuthenticator = new SecuredAuthenticator();
 
 			JsonRequestFactory.ConfigureRequest += basicAuthenticator.ConfigureRequest;
 			JsonRequestFactory.ConfigureRequest += securedAuthenticator.ConfigureRequest;
+			
 
 			CountersConvention.HandleForbiddenResponseAsync = (forbiddenResponse, credentials) =>
 			{

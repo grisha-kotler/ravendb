@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Web.Http;
@@ -16,9 +17,9 @@ namespace Raven.Database.Server.Controllers
 	    [HttpGet]
 		[RavenRoute("databases")]
 		public HttpResponseMessage Databases(bool getAdditionalData = false)
-	    {
+		{
 			return Resources<DatabaseData>(Constants.Database.Prefix, GetDatabasesData, getAdditionalData);
-		}
+				}
 
 		private List<DatabaseData> GetDatabasesData(IEnumerable<RavenJToken> databases)
 		{
@@ -36,15 +37,17 @@ namespace Raven.Database.Server.Controllers
 						}
 					}
 
-					return new DatabaseData
+					var dbName = database.Value<RavenJObject>("@metadata").Value<string>("@id").Replace("Raven/Databases/", string.Empty);
+                    return new DatabaseData
 					{
-						Name = database.Value<RavenJObject>("@metadata").Value<string>("@id").Replace("Raven/Databases/", string.Empty),
+						Name = dbName,
 						Disabled = database.Value<bool>("Disabled"),
 						IndexingDisabled = GetBooleanSettingStatus(database.Value<RavenJObject>("Settings"), Constants.IndexingDisabled),
 						RejectClientsEnabled = GetBooleanSettingStatus(database.Value<RavenJObject>("Settings"), Constants.RejectClientsModeEnabled),
 						ClusterWide = ClusterManager.IsActive() && !GetBooleanSettingStatus(database.Value<RavenJObject>("Settings"), Constants.Cluster.NonClusterDatabaseMarker),
 						Bundles = bundles,
 						IsAdminCurrentTenant = DatabasesLandlord.SystemConfiguration.AnonymousUserAccessMode == AnonymousUserAccessMode.Admin,
+						IsLoaded = DatabasesLandlord.IsDatabaseLoaded(dbName)
 					};
 				}).ToList();
 		}

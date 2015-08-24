@@ -8,10 +8,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using Raven.Abstractions.Connection;
 using Raven.Abstractions.Counters;
+using Raven.Abstractions.Data;
 using Raven.Client;
 using Raven.Client.Counters;
-using Raven.Client.Extensions;
+using Raven.Database.Config;
 using Raven.Database.Extensions;
+using Raven.Database.Server;
+using Raven.Database.Server.Security;
+using Raven.Json.Linq;
 using Raven.Tests.Helpers;
 
 namespace Raven.Tests.Counters
@@ -31,6 +35,27 @@ namespace Raven.Tests.Counters
 			DefaultCounterStorageName += Guid.NewGuid();
 			storeCount = new ConcurrentDictionary<string, int>();
 		}
+
+		protected void ConfigureServerForAuth(InMemoryRavenConfiguration serverConfiguration)
+		{
+			serverConfiguration.AnonymousUserAccessMode = AnonymousUserAccessMode.None;
+			Authentication.EnableOnce();
+		}
+
+		protected void ConfigureApiKey(Database.DocumentDatabase database, string Name, string Secret, string resourceName = null)
+		{
+			database.Documents.Put("Raven/ApiKeys/" + Name, null, RavenJObject.FromObject(new ApiKeyDefinition
+			{
+				Name = Name,
+				Secret = Secret,
+				Enabled = true,
+				Databases = new List<ResourceAccess>
+				{
+                    new ResourceAccess {TenantId = resourceName, Admin = false}
+				}
+			}), new RavenJObject(), null);
+		}
+
 
 		protected ICounterStore NewRemoteCountersStore(string counterStorageName, bool createDefaultCounter = true,OperationCredentials credentials = null, IDocumentStore ravenStore = null)
 		{
@@ -87,7 +112,7 @@ namespace Raven.Tests.Counters
 			return hasReplicated;
 		}
 
-		protected static async Task SetupReplicationAsync(ICounterStore source, params ICounterStore[] destinations)
+		protected static async Task<object> SetupReplicationAsync(ICounterStore source, params ICounterStore[] destinations)
 		{
 			var replicationDocument = new CountersReplicationDocument();
 			foreach (var destStore in destinations)
@@ -100,6 +125,7 @@ namespace Raven.Tests.Counters
 			}
 
 			await source.SaveReplicationsAsync(replicationDocument);
+			return null;
 		}
 	}
 }

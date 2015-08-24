@@ -3,19 +3,6 @@
 //      Copyright (c) Hibernating Rhinos LTD. All rights reserved.
 //  </copyright>
 // -----------------------------------------------------------------------
-using Raven.Abstractions;
-using Raven.Abstractions.Data;
-using Raven.Abstractions.Extensions;
-using Raven.Abstractions.FileSystem;
-using Raven.Abstractions.Util;
-using Raven.Client.Extensions;
-using Raven.Database.Actions;
-using Raven.Database.Config;
-using Raven.Database.Extensions;
-using Raven.Database.Server.Controllers.Admin;
-using Raven.Database.Server.Security;
-using Raven.Database.Server.WebApi.Attributes;
-using Raven.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -27,7 +14,19 @@ using System.Threading.Tasks;
 using System.Web.Http;
 using System.Web.Http.Controllers;
 using System.Web.Http.Routing;
-
+using Raven.Abstractions;
+using Raven.Abstractions.Data;
+using Raven.Abstractions.Extensions;
+using Raven.Abstractions.FileSystem;
+using Raven.Abstractions.Util;
+using Raven.Database.Actions;
+using Raven.Database.Config;
+using Raven.Database.Extensions;
+using Raven.Database.FileSystem.Storage.Esent;
+using Raven.Database.Server.Controllers.Admin;
+using Raven.Database.Server.Security;
+using Raven.Database.Server.WebApi.Attributes;
+using Raven.Json.Linq;
 
 namespace Raven.Database.FileSystem.Controllers
 {
@@ -77,13 +76,13 @@ namespace Raven.Database.FileSystem.Controllers
         public async Task<HttpResponseMessage> Put(string id, bool update = false)
         {
 			
-			MessageWithStatusCode fileSystemNameFormat = CheckNameFormat(id, Database.Configuration.FileSystem.DataDirectory);
-			if (fileSystemNameFormat.Message != null)
+			MessageWithStatusCode nameFormatErrorMessage;
+			if (IsValidName(id, Database.Configuration.FileSystem.DataDirectory, out nameFormatErrorMessage) == false)
 			{
 				return GetMessageWithObject(new
 				{
-                    Error = fileSystemNameFormat.Message
-				}, fileSystemNameFormat.ErrorCode);
+                    Error = nameFormatErrorMessage.Message
+				}, nameFormatErrorMessage.ErrorCode);
 			}
 
 			if (Authentication.IsLicensedForRavenFs == false)
@@ -309,7 +308,7 @@ namespace Raven.Database.FileSystem.Controllers
 
             bool enableIncrementalBackup;
             if (incrementalBackup &&
-                transactionalStorage is Storage.Esent.TransactionalStorage &&
+                transactionalStorage is TransactionalStorage &&
                 (bool.TryParse(Database.Configuration.Settings["Raven/Esent/CircularLog"], out enableIncrementalBackup) == false || enableIncrementalBackup))
             {
                 throw new InvalidOperationException("In order to run incremental backups using Esent you must have circular logging disabled");

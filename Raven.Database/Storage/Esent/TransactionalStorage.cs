@@ -4,6 +4,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Diagnostics;
@@ -64,6 +65,7 @@ namespace Raven.Storage.Esent
         private EsentInFlightTransactionalState inFlightTransactionalState;
 
         private static readonly ILog log = LogManager.GetCurrentClassLogger();
+        private ConcurrentDictionary<int, RemainingReductionPerLevel> scheduledReductionsPerViewAndLevel = new ConcurrentDictionary<int, RemainingReductionPerLevel>();
 
         [ImportMany]
         public OrderedPartCollection<ISchemaUpdate> Updaters { get; set; }
@@ -110,6 +112,15 @@ namespace Raven.Storage.Esent
 		    this.onNestedTransactionExit = onNestedTransactionExit;
         }
 
+	    public ConcurrentDictionary<int, RemainingReductionPerLevel> GetScheduledReductionsPerViewAndLevel()
+	    {
+			return configuration.Indexing.DisableMapReduceInMemoryTracking ? null : scheduledReductionsPerViewAndLevel;
+	    }
+
+	    public void ResetScheduledReductionsTracking()
+	    {
+			scheduledReductionsPerViewAndLevel.Clear();
+	    }
         public TableColumnsCache TableColumnsCache
         {
             get { return tableColumnsCache; }
@@ -452,7 +463,7 @@ namespace Raven.Storage.Esent
             });
         }
 
-        public IList<string> ComputeDetailedStorageInformation()
+		public IList<string> ComputeDetailedStorageInformation(bool computeExactSizes = false)
         {
             return StorageSizes.ReportOn(this);
         }
@@ -649,6 +660,7 @@ namespace Raven.Storage.Esent
                         }
                         return false;
                     case JET_err.DatabaseDirtyShutdown:
+						Output("Dirty shutdown detected, attempting to recover...");
                         try
                         {
                             Api.JetTerm2(instance, TermGrbit.Complete);

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.DirectoryServices.ActiveDirectory;
 using System.Globalization;
 using System.IO;
@@ -124,6 +125,7 @@ namespace Raven.Database.Indexing
         }
         public override Query ToQuery(LuceneASTQueryConfiguration configuration)
         {
+	        configuration.FieldName = FieldName;
 	        var matchList = new List<string>();
 			foreach (var match in Matches)
 			{
@@ -151,17 +153,20 @@ namespace Raven.Database.Indexing
 		    switch (Type)
 		    {
 			    case TermType.Quoted:
-				case TermType.UnQuoted:				
+				case TermType.UnQuoted:
 					var tokenStream = configuration.Analayzer.ReusableTokenStream(configuration.FieldName, new StringReader(Term));
 					while (tokenStream.IncrementToken())
 					{
 						var attribute = (TermAttribute)tokenStream.GetAttribute<ITermAttribute>();
 						yield return attribute.Term;
 					}
-				    break;
+					break;
+				case TermType.QuotedWildcard:
 				case TermType.WildCardTerm:
-				case TermType.PrefixTerm:
-			    case TermType.Float:
+				case TermType.PrefixTerm:				    
+					yield return GetWildcardTerm(configuration).Text;
+					break;
+				case TermType.Float:
 			    case TermType.Double:
 				case TermType.Hex:
 			    case TermType.DateTime:
@@ -178,29 +183,41 @@ namespace Raven.Database.Indexing
 		    }
 	    }
 
-		private Query AnalyzedWildCardQueries(LuceneASTQueryConfiguration configuration)
+	    private Term GetWildcardTerm(LuceneASTQueryConfiguration configuration)
 	    {
-			var tokenStream = configuration.Analayzer.ReusableTokenStream(configuration.FieldName, new StringReader(Term));
-			List<string> terms = new List<string>();
+		    var qouted = Type == TermType.QuotedWildcard;
+			var reader = new StringReader(qouted ? Term.Substring(1, Term.Length - 2) : Term);
+			var tokenStream = configuration.Analayzer.ReusableTokenStream(configuration.FieldName, reader);
+			var terms = new List<string>();
 			while (tokenStream.IncrementToken())
 			{
 				var attribute = (TermAttribute)tokenStream.GetAttribute<ITermAttribute>();
 				terms.Add(attribute.Term);
 			}
+			
 			if (terms.Count == 0)
 			{
-				return new WildcardQuery(new Term(configuration.FieldName, Term)); 
+				return new Term(configuration.FieldName, Term);
 			}
+
 			var sb = new StringBuilder();
+		    int expectedLength;
 			if (terms.Count == 1)
 			{
-				var term = terms.First();
-				if (Term.StartsWith("*") && !term.StartsWith("*")) sb.Append('*');
-				sb.Append(term);
-				if (Term.EndsWith("*") && !term.EndsWith("*")) sb.Append('*');
-				return new WildcardQuery(new Term(configuration.FieldName,sb.ToString()));
+				var firstTerm = terms.First();
+				if (Term.StartsWith("*") && !firstTerm.StartsWith("*")) sb.Append('*');
+				sb.Append(firstTerm);
+				if (Term.EndsWith("*") && !firstTerm.EndsWith("*")) sb.Append('*');
+				var res = sb.ToString();
+				expectedLength = (qouted ? 2 : 0) + res.Length;
+				Debug.Assert(expectedLength  == Term.Length,
+@"if analyzer changes length of term and removes wildcards after processing it, 
+there is no way to know where to put the wildcard character back after the analysis. 
+This edge-case has a very slim chance of happening, but still we should not ignore it completely.");
+				return new Term(configuration.FieldName, res);
 			}
-			foreach (var term in terms)
+
+			foreach (var currentTerm in terms)
 			{
 				if (sb.Length < Term.Length)
 				{
@@ -210,17 +227,35 @@ namespace Raven.Database.Indexing
 						sb.Append(c);
 					}
 				}
-				sb.Append(term);
+				sb.Append(currentTerm);
 			}
-			return new WildcardQuery(new Term(configuration.FieldName, sb.ToString()));
 
+		    var analyzedTermString = sb.ToString();
+		    expectedLength = analyzedTermString.Length + (qouted ? 2 : 0);
+			Debug.Assert(expectedLength == Term.Length,
+@"if analyzer changes length of term and removes wildcards after processing it, 
+there is no way to know where to put the wildcard character back after the analysis. 
+This edge-case has a very slim chance of happening, but still we should not ignore it completely.");
+
+		    return new Term(configuration.FieldName, analyzedTermString);
 	    }
+
+		private Query AnalyzedWildCardQueries(LuceneASTQueryConfiguration configuration)
+	    {
+			return new WildcardQuery(GetWildcardTerm(configuration));
+	    }
+
         public override Query ToQuery(LuceneASTQueryConfiguration configuration)
         {
 	        var boost = string.IsNullOrEmpty(Boost) ? 1 : float.Parse(Boost);
+			//Look into changing the grammer to better handle qouted/unqouted unanlyzed terms
 			if (Type == TermType.UnAnalyzed)
 			{
-				return new TermQuery(new Term(configuration.FieldName, Term.Substring(2, Term.Length - 4))) { Boost = boost };
+				var originalLength = Term.Length;
+				var qouted = Term[2] == '\"' && Term[originalLength - 3] == '\"';
+				var start = qouted ? 3 : 2;
+				var length = qouted ? originalLength - 6 : originalLength - 4;
+				return new TermQuery(new Term(configuration.FieldName, Term.Substring(start, length))) { Boost = boost };
 			}
 	        switch (Type)
 	        {
@@ -232,14 +267,24 @@ namespace Raven.Database.Indexing
 		        case TermType.Long:
 					return new TermQuery(new Term(configuration.FieldName, Term)) { Boost = boost };
 	        }
+
+	        if (Type == TermType.QuotedWildcard)
+	        {
+				var res = AnalyzedWildCardQueries(configuration);
+				res.Boost = boost;
+				return res;		        
+	        }
+
 			if (Type == TermType.WildCardTerm)
 			{
 				var res = AnalyzedWildCardQueries(configuration);
 				res.Boost = boost;
 				return res;
 			}
+
 	        var tokenStream = configuration.Analayzer.ReusableTokenStream(configuration.FieldName, new StringReader(Term));
-	        List<string> terms = new List<string>();
+	        var terms = new List<string>();
+			
 			while (tokenStream.IncrementToken())
 			{
 				var attribute = (TermAttribute)tokenStream.GetAttribute<ITermAttribute>();
@@ -303,6 +348,7 @@ namespace Raven.Database.Indexing
         public enum TermType
         {
             Quoted,
+			QuotedWildcard,
             UnQuoted,
             Float,
 			Double,
@@ -344,6 +390,8 @@ namespace Raven.Database.Indexing
         }
         public override Query ToQuery(LuceneASTQueryConfiguration configuration)
         {
+			// For numeric values { NUll TO <number> } should be [ <min value> TO <number>} but not for string values.
+	        OverideInclusive();
 			if (RangeMin.Type == TermLuceneASTNode.TermType.Float || RangeMax.Type == TermLuceneASTNode.TermType.Float)
             {
                 //Need to handle NULL values...
@@ -383,24 +431,28 @@ namespace Raven.Database.Indexing
 			}
 	        if (RangeMin.Type == TermLuceneASTNode.TermType.Hex || RangeMax.Type == TermLuceneASTNode.TermType.Hex)
 	        {
-				var longMin = (RangeMin.Type == TermLuceneASTNode.TermType.Null || RangeMin.Term == "*") ? long.MinValue : long.Parse(RangeMin.Term.Substring(2), NumberStyles.HexNumber);
-				var longMax = (RangeMax.Type == TermLuceneASTNode.TermType.Null || RangeMax.Term == "*") ? long.MaxValue : long.Parse(RangeMax.Term.Substring(2), NumberStyles.HexNumber);
-		        if (RangeMin.Type == TermLuceneASTNode.TermType.Hex && RangeMax.Type == TermLuceneASTNode.TermType.Hex)
+		        long longMin;
+		        long longMax;
+		        if (RangeMin.Type == TermLuceneASTNode.TermType.Hex)
 		        {
-			        if (longMax <= int.MaxValue)
+			        if (RangeMin.Term.Length <= 10)
 			        {
-						return NumericRangeQuery.NewIntRange(configuration.FieldName, 4, (int)longMin, (int)longMax, InclusiveMin, InclusiveMax);
+						var intMin = int.Parse(RangeMin.Term.Substring(2), NumberStyles.HexNumber);
+						var intMax = (RangeMax.Type == TermLuceneASTNode.TermType.Null || RangeMax.Term == "*") ? int.MaxValue : int.Parse(RangeMax.Term.Substring(2), NumberStyles.HexNumber);
+						return NumericRangeQuery.NewIntRange(configuration.FieldName, 4, intMin, intMax, InclusiveMin, InclusiveMax);
 			        }
-					return NumericRangeQuery.NewLongRange(configuration.FieldName, 4, longMin, longMax, InclusiveMin, InclusiveMax);
+			        longMin = long.Parse(RangeMin.Term.Substring(2), NumberStyles.HexNumber);
+			        longMax = (RangeMax.Type == TermLuceneASTNode.TermType.Null || RangeMax.Term == "*") ? long.MaxValue : long.Parse(RangeMax.Term.Substring(2), NumberStyles.HexNumber);
+			        return NumericRangeQuery.NewLongRange(configuration.FieldName, 4, longMin, longMax, InclusiveMin, InclusiveMax);
 		        }
-				if (RangeMin.Type == TermLuceneASTNode.TermType.Hex && longMin <= int.MaxValue)
-		        {
-					return NumericRangeQuery.NewIntRange(configuration.FieldName, 4, (int)longMin, int.MaxValue, InclusiveMin, InclusiveMax);
-		        }
-				if (RangeMax.Type == TermLuceneASTNode.TermType.Hex && longMax <= int.MaxValue)
+				if (RangeMax.Term.Length <= 10)
 				{
-					return NumericRangeQuery.NewIntRange(configuration.FieldName, 4, int.MinValue, (int)longMax, InclusiveMin, InclusiveMax);
+					var intMin = (RangeMin.Type == TermLuceneASTNode.TermType.Null || RangeMin.Term == "*") ? int.MinValue : int.Parse(RangeMin.Term.Substring(2), NumberStyles.HexNumber);
+					var intMax = int.Parse(RangeMax.Term.Substring(2), NumberStyles.HexNumber);
+					return NumericRangeQuery.NewIntRange(configuration.FieldName, 4, intMin, intMax, InclusiveMin, InclusiveMax);
 				}
+				longMin = (RangeMin.Type == TermLuceneASTNode.TermType.Null || RangeMin.Term == "*") ? long.MinValue : long.Parse(RangeMin.Term.Substring(2), NumberStyles.HexNumber);
+				longMax = long.Parse(RangeMax.Term.Substring(2), NumberStyles.HexNumber);
 				return NumericRangeQuery.NewLongRange(configuration.FieldName, 4, longMin, longMax, InclusiveMin, InclusiveMax);
 	        }
 	        if (RangeMin.Type == TermLuceneASTNode.TermType.Null && RangeMax.Type == TermLuceneASTNode.TermType.Null)
@@ -413,7 +465,41 @@ namespace Raven.Database.Indexing
 						InclusiveMin, InclusiveMax);
         }
 
-        public TermLuceneASTNode RangeMin { get; set; }
+		private void OverideInclusive()
+		{
+			if (shouldOverideInclusive(RangeMin, RangeMax))
+				InclusiveMax = true;
+			if (shouldOverideInclusive(RangeMax, RangeMin))
+				InclusiveMin = true;
+		}
+
+	    private bool shouldOverideInclusive(TermLuceneASTNode min, TermLuceneASTNode max)
+	    {
+		    bool shouldOverride = false;
+		    switch (min.Type)
+		    {
+			    case TermLuceneASTNode.TermType.Int:
+				    shouldOverride = min.Term.StartsWith("Ix");
+				    break;
+			    case TermLuceneASTNode.TermType.Long:
+				    shouldOverride = min.Term.StartsWith("Lx");
+				    break;
+			    case TermLuceneASTNode.TermType.Float:
+				    shouldOverride = true;
+				    break;
+			    case TermLuceneASTNode.TermType.Double:
+				    shouldOverride = true;
+				    break;
+			    case TermLuceneASTNode.TermType.Hex:
+				    shouldOverride = true;
+				    break;
+		    }
+		    if (shouldOverride && (max.Type == TermLuceneASTNode.TermType.Null || max.Term == "*"))
+				return true;
+		    return false;
+	    }
+
+	    public TermLuceneASTNode RangeMin { get; set; }
         public TermLuceneASTNode RangeMax { get; set; }
         public bool InclusiveMin { get; set; }
         public bool InclusiveMax { get; set; }
@@ -450,8 +536,8 @@ namespace Raven.Database.Indexing
 					RightNode.AddQueryToBooleanQuery(query, configuration, RightNode.Prefix == PrefixOperator.Minus ? Occur.MUST_NOT : Occur.MUST);
                     break;
                 case Operator.OR:
-					LeftNode.AddQueryToBooleanQuery(query, configuration, Occur.SHOULD);
-					RightNode.AddQueryToBooleanQuery(query, configuration, Occur.SHOULD);
+					LeftNode.AddQueryToBooleanQuery(query, configuration, LeftNode.Prefix == PrefixOperator.Plus ? Occur.MUST : Occur.SHOULD);
+					RightNode.AddQueryToBooleanQuery(query, configuration, RightNode.Prefix == PrefixOperator.Plus ? Occur.MUST : Occur.SHOULD);
                     break;
                 case Operator.NOT:
                     query.Add(LeftNode.ToQuery(configuration), Occur.MUST_NOT);
@@ -460,8 +546,8 @@ namespace Raven.Database.Indexing
 					switch (configuration.DefaultOperator)
                     {
                         case QueryOperator.Or:
-                            LeftNode.AddQueryToBooleanQuery(query, configuration, Occur.SHOULD);
-							RightNode.AddQueryToBooleanQuery(query, configuration, Occur.SHOULD);
+							LeftNode.AddQueryToBooleanQuery(query, configuration, LeftNode.Prefix == PrefixOperator.Plus ? Occur.MUST : Occur.SHOULD);
+							RightNode.AddQueryToBooleanQuery(query, configuration, RightNode.Prefix == PrefixOperator.Plus ? Occur.MUST : Occur.SHOULD);
                             break;
                         case QueryOperator.And:
 							LeftNode.AddQueryToBooleanQuery(query, configuration, LeftNode.Prefix == PrefixOperator.Minus ? Occur.MUST_NOT : Occur.MUST);
@@ -490,8 +576,8 @@ namespace Raven.Database.Indexing
 					RightNode.AddQueryToBooleanQuery(query, configuration, RightNode.Prefix == PrefixOperator.Minus ? Occur.MUST_NOT : Occur.MUST);
 					break;
 				case Operator.OR:
-					LeftNode.AddQueryToBooleanQuery(query, configuration, Occur.SHOULD);
-					RightNode.AddQueryToBooleanQuery(query, configuration, Occur.SHOULD);
+					LeftNode.AddQueryToBooleanQuery(query, configuration, LeftNode.Prefix == PrefixOperator.Plus ? Occur.MUST : Occur.SHOULD);
+					RightNode.AddQueryToBooleanQuery(query, configuration, RightNode.Prefix == PrefixOperator.Plus ? Occur.MUST : Occur.SHOULD);
 					break;
 				case Operator.NOT:
 					query.Add(LeftNode.ToQuery(configuration), Occur.MUST_NOT);
@@ -500,8 +586,8 @@ namespace Raven.Database.Indexing
 					switch (configuration.DefaultOperator)
 					{
 						case QueryOperator.Or:
-							LeftNode.AddQueryToBooleanQuery(query, configuration, Occur.SHOULD);
-							RightNode.AddQueryToBooleanQuery(query, configuration, Occur.SHOULD);
+							LeftNode.AddQueryToBooleanQuery(query, configuration, LeftNode.Prefix == PrefixOperator.Plus ? Occur.MUST : Occur.SHOULD);
+							RightNode.AddQueryToBooleanQuery(query, configuration, RightNode.Prefix == PrefixOperator.Plus ? Occur.MUST : Occur.SHOULD);
 							break;
 						case QueryOperator.And:
 							LeftNode.AddQueryToBooleanQuery(query, configuration, LeftNode.Prefix == PrefixOperator.Minus ? Occur.MUST_NOT : Occur.MUST);

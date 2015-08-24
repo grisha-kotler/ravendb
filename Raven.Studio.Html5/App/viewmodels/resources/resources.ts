@@ -28,7 +28,7 @@ import createDefaultFsSettingsCommand = require("commands/filesystem/createDefau
 import createFilesystemCommand = require("commands/filesystem/createFilesystemCommand");
 import counterStorage = require("models/counter/counterStorage");
 import createCounterStorageCommand = require("commands/resources/createCounterStorageCommand");
-import timeSeries = require("models/timeSeries/timeSeriesDocument");
+import timeSeries = require("models/timeSeries/timeSeries");
 import createTimeSeriesCommand = require("commands/resources/createTimeSeriesCommand");
 
 class resources extends viewModelBase {
@@ -51,6 +51,7 @@ class resources extends viewModelBase {
     alerts = ko.observable<alert[]>([]);
     isGlobalAdmin = shell.isGlobalAdmin;
 	clusterMode = ko.computed(() => shell.clusterMode());
+	showCreateCluster = ko.computed(() => shell.has40Features() && !shell.clusterMode());
 
     databaseType = database.type;
     fileSystemType = fileSystem.type;
@@ -177,6 +178,7 @@ class resources extends viewModelBase {
     }
 
     attached() {
+		super.attached();
         this.updateHelpLink("Z8DC3Q");
         ko.postbox.publish("SetRawJSONUrl", appUrl.forDatabasesRawData());
         this.resourcesLoaded();
@@ -237,7 +239,7 @@ class resources extends viewModelBase {
     }
 
     getTimeSeriesUrl(ts: timeSeries) {
-        return appUrl.forTimeSeriesKey(null, null, ts);
+        return appUrl.forTimeSeriesType(null, ts);
     }
 
     selectResource(rs: resource, activateResource: boolean = true) {
@@ -649,7 +651,7 @@ class resources extends viewModelBase {
         var foundFileSystem = this.fileSystems.first((fs: fileSystem) => fs.name === fileSystemName);
 
         if (!foundFileSystem) {
-            var newFileSystem = new fileSystem(fileSystemName, true, false, bundles);
+            var newFileSystem = new fileSystem(fileSystemName, true, false, false, bundles);
             this.fileSystems.unshift(newFileSystem);
             this.filterResources();
             return newFileSystem;

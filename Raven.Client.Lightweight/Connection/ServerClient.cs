@@ -204,6 +204,11 @@ namespace Raven.Client.Connection
 			AsyncHelpers.RunSync(() => asyncServerClient.DeleteTransformerAsync(name));
 		}
 
+		public void SetTransformerLock(string name, TransformerLockMode lockMode)
+		{
+			AsyncHelpers.RunSync(() => asyncServerClient.SetTransformerLockAsync(name, lockMode));
+		}
+
 		public void ResetIndex(string name)
 		{
 			AsyncHelpers.RunSync(() => asyncServerClient.ResetIndexAsync(name));
@@ -227,9 +232,18 @@ namespace Raven.Client.Connection
 			return AsyncHelpers.RunSync(() => asyncServerClient.GetIndexingPerformanceStatisticsAsync());
 		}
 
+		internal void ReplicateIndex(string name)
+		{
+			AsyncHelpers.RunSync(() => asyncServerClient.ReplicateIndexAsync(name));
+		}
+
 		public string PutIndex(string name, IndexDefinition definition)
 		{
 			return AsyncHelpers.RunSync(() => asyncServerClient.PutIndexAsync(name, definition, false));
+		}
+		public List<string> PutIndexes(string[] names, IndexDefinition[] definitions, IndexingPriority[] priorities)
+		{
+			return AsyncHelpers.RunSync(() => asyncServerClient.PutIndexesAsync(names, definitions, priorities));
 		}
 
 		public bool IndexHasChanged(string name, IndexDefinition indexDef)

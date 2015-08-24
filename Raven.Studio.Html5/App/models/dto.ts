@@ -46,6 +46,7 @@ interface logNotificationDto {
     CustomInfo: string;
     TenantType: TenantType;
     InnerRequestsCount?: number;
+    QueryTimings: any;
 
 }
 interface bulkInsertChangeNotificationDto extends documentChangeNotificationDto{
@@ -90,10 +91,18 @@ interface databaseStatisticsDto {
     Indexes: indexStatisticsDto[];
     LastAttachmentEtag: string;
     LastDocEtag: string;
-    Prefetches: any[];
+    Prefetches: futureBatchStatsDto[];
     StaleIndexes: string[];
     SupportsDtc: boolean;
 	Is64Bit: boolean;
+}
+
+interface futureBatchStatsDto {
+    Timestamp: string;
+    Duration: string;
+    Size: number;
+    Retries: number;
+    PrefetchingUser: string;
 }
 
 interface indexStatisticsDto {
@@ -123,6 +132,7 @@ interface indexStatisticsDto {
 }
 
 interface indexingBatchInfoDto {
+    Id: number;
     BatchType: string;
     IndexesToWorkOn: string[];
     TotalDocumentCount: number;
@@ -153,6 +163,7 @@ interface indexPerformanceDto {
 }
 
 interface reducingBatchInfoDto {
+    Id: number;
     IndexesToWorkOn: string[];
     StartedAt: string; // ISO date string.
     StartedAtDate?: Date;
@@ -262,7 +273,14 @@ interface licenseStatusDto {
         ravenfs: string;
         counterStorage: string;
         timeSeries: string;
+		hotSpare: string;
     }
+}
+
+interface HotSpareDto {
+	ActivationMode: string;
+	ActivationTime: string;
+	RemainingTestActivations: number;
 }
 
 interface userInfoDto {
@@ -458,7 +476,7 @@ interface replicationDestinationDto {
     Disabled: boolean;
     ClientVisibleUrl: string;
     SkipIndexReplication: boolean;
-    SourceCollections: string[];
+    SpecifiedCollections: dictionary<string>;
     HasGlobal?: boolean;
     HasLocal?: boolean;
 }
@@ -525,6 +543,7 @@ interface transformerDto {
     definition: {
         TransformResults: string;
         Name: string;
+		LockMode: string;
     }
 }
 
@@ -549,6 +568,7 @@ interface savedTransformerDto {
     {
         "TransformResults": string;
         "Name": string;
+		"LockMode": string;
     }
 }
 
@@ -937,6 +957,7 @@ interface statusDebugCurrentlyIndexingDto {
 interface statusDebugIndexDto {
     IndexName: string;
     IsMapReduce: boolean;
+	RemainingReductions: number;
     CurrentOperations: Array<statusDebugIndexOperationDto>;
     Priority: string;
     OverallIndexingRate: Array<statusDebugIndexRateDto>;
@@ -1073,6 +1094,7 @@ interface databaseDto extends tenantDto {
 }
 
 interface tenantDto {
+    IsLoaded: boolean;
     Name: string;
     Disabled: boolean;
     Bundles: Array<string>;
@@ -1401,4 +1423,41 @@ enum checkbox {
     UnChecked = 0,
     SomeChecked = 1,
 	Checked = 2
+}
+
+
+interface diskIoPerformanceRunDto {
+    ProcessId: number;
+    ProcessName: string;
+    DurationInMinutes: number;
+    StartTime: string;
+    Databases: Array<diskIoPerformanceRunResultDto>;
+}
+
+interface diskIoPerformanceRunResultDto
+{
+    Name: string;
+    Results: dictionary<Array<diskIoPerformanceRunIoResultDto>>;
+}
+
+interface diskIoPerformanceRunIoResultDto extends documentDto {
+    PathType: string;
+	WriteDurationInMilliseconds: number;
+	WriteIoSizeInBytes: number;
+	ReadDurationInMilliseconds: number;
+	ReadIoSizeInBytes: number;
+	NumberOfReadOperations: number;
+	NumberOfWriteOperations: number;
+}
+
+interface performanceRunItemDto {
+    displayName: string;
+    documentId: string;
+}
+
+
+interface filteredOutIndexStatDto {
+    Timestamp: string;
+    TimestampParsed?: Date;
+    IndexName: string;
 }

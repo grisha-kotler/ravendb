@@ -1,58 +1,54 @@
-﻿import timeSeries = require("models/timeSeries/timeSeriesDocument");
-import pagedList = require("common/pagedList");
+﻿import pagedList = require("common/pagedList");
 import pagedResultSet = require("common/pagedResultSet");
-import cssGenerator = require("common/cssGenerator");
 import getPointsCommand = require("commands/timeSeries/getPointsCommand");
+import timeSeries = require("models/timeSeries/timeSeries");
 
-class timeSeriesKey implements ICollectionBase {
-	colorClass = "";
-	name = "";
-    private timeSeriesList: pagedList;
-    private static prefixColorMaps: resourceStyleMap[] = [];
-    pointsCount = ko.observable<number>(0);
-    timeSeriesCountWithThousandsSeparator = ko.computed(() => this.pointsCount().toLocaleString());
-    
-    constructor(public prefix: string, public key: string, public valueLength: number, private ownerTimeSeries: timeSeries) {
-        this.name = prefix + "/" + key;
-        this.colorClass = timeSeriesKey.getPrefixCssClass(this.prefix, ownerTimeSeries);
+class timeSeriesKey implements documentBase {
+    Type: string;
+    Fields: string[];
+    Key: string;
+    Points: number;
+    private pointsList: pagedList;
+
+    constructor(dto: timeSeriesKeyDto, private ownerTimeSeries: timeSeries) {
+        this.Type = dto.Type.Type;
+        this.Fields = dto.Type.Fields;
+        this.Key = dto.Key;
+        this.Points = dto.PointsCount;
     }
 
-    activate() {
-		ko.postbox.publish("ActivateKey", this);
+    getEntityName() {
+        return this.getId();
     }
 
-    getTimeSeries() {
-        if (!this.timeSeriesList) {
-            this.timeSeriesList = this.createPagedList();
+    getDocumentPropertyNames(): Array<string> {
+        return ["Key", "Points"];
+    }
+
+    getId() {
+        return this.Type + "/" + this.Key;
+    }
+
+    getUrl() {
+        return this.getId();
+    }
+
+    getPoints() {
+        if (!this.pointsList) {
+            this.pointsList = this.createPointsPagedList();
         }
-
-        return this.timeSeriesList;
+        return this.pointsList;
     }
 
-	invalidateCache() {
-		var timeSeriesList = this.getTimeSeries();
-		timeSeriesList.invalidateCache();
-	}
-
-    static fromDto(dto: timeSeriesKeyDto, ts: timeSeries): timeSeriesKey {
-        var _new = new timeSeriesKey(dto.Prefix, dto.Key, dto.ValueLength, ts);
-        _new.pointsCount(dto.PointsCount);
-        return _new;
-    }
-
-    static getPrefixCssClass(prefix: string, ts: timeSeries): string {
-        return cssGenerator.getCssClass(prefix, timeSeriesKey.prefixColorMaps, ts);
-    }
-
-    private createPagedList(): pagedList {
-        var fetcher = (skip: number, take: number) => this.fetchTimeSeries(skip, take);
+    private createPointsPagedList(): pagedList {
+        var fetcher = (skip: number, take: number) => this.fetchPoints(skip, take);
         var list = new pagedList(fetcher);
-        list.collectionName = this.name;
+        list.collectionName = this.Key;
         return list;
     }
 
-    private fetchTimeSeries(skip: number, take: number): JQueryPromise<pagedResultSet> {
-        return new getPointsCommand(this.ownerTimeSeries, skip, take, this.key, this.prefix).execute();
+    private fetchPoints(skip: number, take: number): JQueryPromise<pagedResultSet> {
+        return new getPointsCommand(this.ownerTimeSeries, skip, take, this.Type, this.Fields, this.Key, this.Points).execute();
     }
 } 
 

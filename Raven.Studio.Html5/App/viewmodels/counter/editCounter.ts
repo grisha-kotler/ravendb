@@ -60,6 +60,7 @@ class editCounter extends viewModelBase {
     }*/
 
     attached() {
+		super.attached();
         this.setupKeyboardShortcuts();
     }
 
@@ -91,7 +92,7 @@ class editCounter extends viewModelBase {
 	change() {
         var dto = {
             CurrentValue: this.counter().total(),
-            Group: this.groupName(),
+            GroupName: this.groupName(),
             CounterName: this.counterName(),
             Delta: 0
         };
@@ -116,7 +117,7 @@ class editCounter extends viewModelBase {
 
 	deleteCounter() {
 		var summary: counterSummary = new counterSummary({
-			Group: this.groupName(),
+			GroupName: this.groupName(),
 			CounterName: this.counterName(),
 			Total: this.counter().total()
 		});
