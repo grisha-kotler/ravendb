@@ -155,6 +155,7 @@
     <TypeScriptCompile Include="App\viewmodels\counter\counterStorageStats.ts" />
     <TypeScriptCompile Include="App\viewmodels\counter\deleteGroup.ts" />
     <TypeScriptCompile Include="App\viewmodels\counter\editCounter.ts" />
+    <TypeScriptCompile Include="App\viewmodels\counter\editCounterDialog.ts" />
     <TypeScriptCompile Include="App\viewmodels\database\patch\patch.ts" />
     <TypeScriptCompile Include="App\viewmodels\database\status\debug\statusDebug.ts" />
     <TypeScriptCompile Include="App\viewmodels\database\status\debug\statusDebugChanges.ts" />

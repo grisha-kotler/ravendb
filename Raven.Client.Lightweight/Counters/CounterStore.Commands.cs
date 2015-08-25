@@ -16,7 +16,7 @@ namespace Raven.Client.Counters
 			await ReplicationInformer.UpdateReplicationInformationIfNeededAsync().WithCancellation(token).ConfigureAwait(false);
 			await ReplicationInformer.ExecuteWithReplicationAsync(Url,HttpMethods.Post, (url, counterStoreName) =>
 			{
-				var requestUriString = string.Format(CultureInfo.InvariantCulture, "{0}/cs/{1}/change/{2}/{3}?delta={4}",
+				var requestUriString = string.Format(CultureInfo.InvariantCulture, "{0}/cs/{1}/change?groupName={2}&counterName={3}&delta={4}",
 					url, counterStoreName, groupName, counterName, delta);
 				using (var request = CreateHttpJsonRequest(requestUriString, HttpMethods.Post))
 					return request.ReadResponseJsonAsync().WithCancellation(token);

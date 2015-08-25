@@ -204,7 +204,7 @@ namespace Raven.Database.Counters.Controllers
             }
 
 			var csDoc = await ReadJsonObjectAsync<CounterStorageDocument>();
-			EnsureCounterStorageHasRequiredSettings(id, csDoc);
+			EnsureCounterStorageHasRequiredSettings(counterStorageName, csDoc);
             CountersLandlord.Protect(csDoc);
             var json = RavenJObject.FromObject(csDoc);
             json.Remove("Id");
@@ -287,8 +287,8 @@ namespace Raven.Database.Counters.Controllers
 
 		private static void EnsureCounterStorageHasRequiredSettings(string id, CounterStorageDocument csDoc)
         {
-            if (!csDoc.Settings.ContainsKey(Constants.FileSystem.DataDirectory))
-                csDoc.Settings[Constants.FileSystem.DataDirectory] = "~/Counters/" + id;
+            if (!csDoc.Settings.ContainsKey(Constants.Counter.DataDirectory))
+                csDoc.Settings[Constants.Counter.DataDirectory] = "~/Counters/" + id;
         }
 
 	    [HttpDelete]
@@ -464,7 +464,7 @@ namespace Raven.Database.Counters.Controllers
 			{
 				StartTime = SystemTime.UtcNow,
 				TaskType = TaskActions.PendingTaskType.BackupCounterStorage,
-				Payload = "Backingup counter storage " + CounterStorageName + " from " + backupRequest.BackupLocation,
+				Payload = "Backingup counter storage " + currentCounterStorageName + " from " + backupRequest.BackupLocation,
 			}, out id, cts);
 
 			return GetMessageWithObject(new

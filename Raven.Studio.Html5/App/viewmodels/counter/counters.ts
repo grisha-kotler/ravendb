@@ -14,6 +14,7 @@ import resetCounterCommand = require("commands/counter/resetCounterCommand");
 import viewModelBase = require("viewmodels/viewModelBase");
 import editCounterDialog = require("viewmodels/counter/editCounterDialog");
 import deleteGroup = require("viewmodels/counter/deleteGroup");
+import counterSummary = require("models/counter/counterSummary");
 
 class counters extends viewModelBase {
 
@@ -181,11 +182,11 @@ class counters extends viewModelBase {
     change() {
         var grid = this.getCountersGrid();
         if (grid) {
-            var counterData = grid.getSelectedItems(1).first();
-            var dto = {
+            var counterData: counterSummary = grid.getSelectedItems(1).first();
+            var dto: counterTotalDto = {
                 CurrentValue: counterData.Total,
-                GroupName: counterData.Group,
-                CounterName: counterData.Name,
+                GroupName: counterData.getGroupName(),
+                CounterName: counterData.getCounterName(),
                 Delta: 0
             };
             var change = new counterChange(dto);
@@ -193,7 +194,7 @@ class counters extends viewModelBase {
             counterChangeVm.updateTask.done((change: counterChange, isNew: boolean) => {
                 var counterCommand = new updateCounterCommand(this.activeCounterStorage(), change.group(), change.counterName(), change.delta(), isNew);
 	            var execute = counterCommand.execute();
-				execute.done(() => this.refreshGridAndGroup(counterData.Group));
+				execute.done(() => this.refreshGridAndGroup(counterData.getGroupName()));
             });
             app.showDialog(counterChangeVm);
         }
