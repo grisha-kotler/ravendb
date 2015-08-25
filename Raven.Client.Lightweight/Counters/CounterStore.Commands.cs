@@ -40,7 +40,7 @@ namespace Raven.Client.Counters
 
 			await ReplicationInformer.ExecuteWithReplicationAsync(Url,HttpMethods.Post,  (url, counterStoreName) =>
 			{
-				var requestUriString = string.Format("{0}/cs/{1}/reset/{2}/{3}", url, counterStoreName, groupName, counterName);
+                var requestUriString = string.Format("{0}/cs/{1}/reset?groupName={2}&counterName={3}", url, counterStoreName, groupName, counterName);
 				using (var request = CreateHttpJsonRequest(requestUriString, HttpMethods.Post))
 					return request.ReadResponseJsonAsync().WithCancellation(token);
 			}, token).WithCancellation(token).ConfigureAwait(false);
@@ -53,7 +53,7 @@ namespace Raven.Client.Counters
 
 			await ReplicationInformer.ExecuteWithReplicationAsync(Url, HttpMethods.Post, (url, counterStoreName) =>
 			{
-				var requestUriString = string.Format("{0}/cs/{1}/delete/{2}/{3}", url, counterStoreName, groupName, counterName);
+                var requestUriString = string.Format("{0}/cs/{1}/delete?groupName={2}&counterName={3}", url, counterStoreName, groupName, counterName);
 				using (var request = CreateHttpJsonRequest(requestUriString, HttpMethods.Post))
 					return request.ReadResponseJsonAsync().WithCancellation(token);
 			}, token).WithCancellation(token).ConfigureAwait(false);
@@ -65,7 +65,7 @@ namespace Raven.Client.Counters
 
 			return await ReplicationInformer.ExecuteWithReplicationAsync(Url, HttpMethods.Get, async (url, counterStoreName) =>
 			{
-				var requestUriString = string.Format("{0}/cs/{1}/getCounterOverallTotal/{2}/{3}", url, counterStoreName, groupName, counterName);
+                var requestUriString = string.Format("{0}/cs/{1}/getCounterOverallTotal?groupName={2}&counterName={3}", url, counterStoreName, groupName, counterName);
 				using (var request = CreateHttpJsonRequest(requestUriString, HttpMethods.Get))
 				{
 					var response = await request.ReadResponseJsonAsync().WithCancellation(token).ConfigureAwait(false);
