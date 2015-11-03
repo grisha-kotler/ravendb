@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Threading;
 using Raven.Abstractions.Extensions;
 
@@ -10,12 +9,12 @@ namespace Raven.Abstractions.Util
 {
     public class AtomicDictionary<TVal> : IEnumerable<KeyValuePair<string, TVal>>
     {
-        private ReadOnlyDictionary<string, TVal> snapshot;
-        private int snapshotVersion;
-        private int version;
         private readonly ConcurrentDictionary<string, object> locks;
         private readonly ConcurrentDictionary<string, TVal> items;
         private readonly EasyReaderWriterLock globalLocker = new EasyReaderWriterLock();
+        private List<KeyValuePair<string, TVal>> snapshot;
+        private long snapshotVersion;
+        private long version;
         private static readonly string NullValue = "Null Replacement: " + Guid.NewGuid();
 
         public AtomicDictionary()
@@ -28,7 +27,6 @@ namespace Raven.Abstractions.Util
         {
             items = new ConcurrentDictionary<string, TVal>(comparer);
             locks = new ConcurrentDictionary<string, object>(comparer);
-
         }
 
         public IEnumerable<TVal> Values
@@ -56,14 +54,14 @@ namespace Raven.Abstractions.Util
             }
         }
 
-        public ReadOnlyDictionary<string, TVal> Snapshot
+        public List<KeyValuePair<string, TVal>> Snapshot
         {
             get
             {
-                var currentVersion = version;
+                var currentVersion = Interlocked.Read(ref version);
                 if (currentVersion != snapshotVersion || snapshot == null)
                 {
-                    snapshot = new ReadOnlyDictionary<string, TVal>(items);
+                    snapshot = new List<KeyValuePair<string, TVal>>(items);
                     snapshotVersion = currentVersion;
                 }
                 return snapshot;
