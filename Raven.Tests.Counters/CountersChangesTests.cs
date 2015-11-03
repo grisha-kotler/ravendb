@@ -66,7 +66,7 @@ namespace Raven.Tests.Counters
                 changes.WaitForAllPendingSubscriptions();
                 await store.ChangeAsync(GroupName, CounterName, 2);
 
-                var counterChange1= await notificationTask1;
+                var counterChange1 = await notificationTask1;
                 Assert.Equal(GroupName, counterChange1.GroupName);
                 Assert.Equal(CounterName, counterChange1.CounterName);
                 Assert.Equal(CounterChangeAction.Add, counterChange1.Action);
@@ -77,6 +77,45 @@ namespace Raven.Tests.Counters
                  .Timeout(TimeSpan.FromSeconds(300))
                  .Take(1).ToTask();
 
+                changes.WaitForAllPendingSubscriptions();
+                await store.DecrementAsync(GroupName, CounterName2);
+
+                var counterChange2 = await notificationTask2;
+                Assert.Equal(GroupName, counterChange2.GroupName);
+                Assert.Equal(CounterName2, counterChange2.CounterName);
+                Assert.Equal(CounterChangeAction.Add, counterChange2.Action);
+                Assert.Equal(-1, counterChange2.Total);
+            }
+        }
+
+        [Fact]
+        public async Task NotificationReceivedForCountersStartingWith2()
+        {
+            using (var store = NewRemoteCountersStore(DefaultCounterStorageName))
+            {
+                var changes = store.Changes();
+                var finished = false;
+                changes.Task.Result
+                    .ForCountersStartingWith(GroupName, CounterName.Substring(0, 2))
+                    .Subscribe(counterChange =>
+                    {
+                        if (finished)
+                            return;
+
+                        Assert.Equal(GroupName, counterChange.GroupName);
+                        Assert.Equal(CounterName, counterChange.CounterName);
+                        Assert.Equal(CounterChangeAction.Add, counterChange.Action);
+                        Assert.Equal(2, counterChange.Total);
+                        finished = true;
+                    });
+
+                changes.WaitForAllPendingSubscriptions();
+                await store.ChangeAsync(GroupName, CounterName, 2);
+
+                var notificationTask2 = changes.Task.Result
+                 .ForCountersStartingWith(GroupName, CounterName)
+                 .Timeout(TimeSpan.FromSeconds(300))
+                 .Take(1).ToTask();
 
                 changes.WaitForAllPendingSubscriptions();
                 await store.DecrementAsync(GroupName, CounterName2);
