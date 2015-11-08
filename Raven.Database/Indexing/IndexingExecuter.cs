@@ -244,21 +244,23 @@ namespace Raven.Database.Indexing
 
         private PrefetchingBehavior GetPrefetcherFor(Etag fromEtag, ConcurrentSet<PrefetchingBehavior> usedPrefetchers)
         {
+            var recentEtag = GetRecentEtag();
+            var isDistanceBiggerThanNumberOfItemsToProcessInSingleBatch = IsDistanceBiggerThanNumberOfItemsToProcessInSingleBatch(fromEtag, recentEtag);
             foreach (var prefetchingBehavior in prefetchingBehaviors)
             {
                 if (prefetchingBehavior.CanUsePrefetcherToLoadFrom(fromEtag) && usedPrefetchers.TryAdd(prefetchingBehavior))
+                {
+                    // If the distance between etag of a recent document in db and etag to index from is greater than NumberOfItemsToProcessInSingleBatch
+                    // then prevent the prefetcher from loading newly added documents. For such prefetcher we will relay only on future batches to prefetch docs to avoid
+                    // large memory consumption by in-memory prefetching queue that would hold all the new documents, but it would be a long time before we can reach them.
+                    prefetchingBehavior.DisableCollectingDocumentsAfterCommit = isDistanceBiggerThanNumberOfItemsToProcessInSingleBatch;
                     return prefetchingBehavior;
+                }
             }
 
-            var newPrefetcher = prefetcher.CreatePrefetchingBehavior(PrefetchingUser.Indexer, autoTuner,string.Format("Etags from: {0}", fromEtag));
+            var newPrefetcher = prefetcher.CreatePrefetchingBehavior(PrefetchingUser.Indexer, autoTuner, string.Format("Etags from: {0}", fromEtag));
 
-            var recentEtag = Etag.Empty;
-            context.Database.TransactionalStorage.Batch(accessor =>
-            {
-                recentEtag = accessor.Staleness.GetMostRecentDocumentEtag();
-            });
-
-            if (recentEtag.Restarts != fromEtag.Restarts || Math.Abs(recentEtag.Changes - fromEtag.Changes) > context.CurrentNumberOfItemsToIndexInSingleBatch)
+            if (isDistanceBiggerThanNumberOfItemsToProcessInSingleBatch)
             {
                 // If the distance between etag of a recent document in db and etag to index from is greater than NumberOfItemsToProcessInSingleBatch
                 // then prevent the prefetcher from loading newly added documents. For such prefetcher we will relay only on future batches to prefetch docs to avoid
@@ -270,6 +272,18 @@ namespace Raven.Database.Indexing
             usedPrefetchers.Add(newPrefetcher);
 
             return newPrefetcher;
+        }
+
+        private bool IsDistanceBiggerThanNumberOfItemsToProcessInSingleBatch(Etag fromEtag, Etag recentEtag)
+        {
+            return recentEtag.Restarts != fromEtag.Restarts || Math.Abs(recentEtag.Changes - fromEtag.Changes) > context.CurrentNumberOfItemsToIndexInSingleBatch;
+        }
+
+        private Etag GetRecentEtag()
+        {
+            var recentEtag = Etag.Empty;
+            context.Database.TransactionalStorage.Batch(accessor => { recentEtag = accessor.Staleness.GetMostRecentDocumentEtag(); });
+            return recentEtag;
         }
 
         private void RemoveUnusedPrefetchers(IEnumerable<PrefetchingBehavior> usedPrefetchingBehaviors)
