@@ -34,6 +34,7 @@ using System.Web;
 using System.Web.Http;
 using System.Web.Http.Controllers;
 using System.Web.Http.Routing;
+using Raven.Abstractions.Exceptions;
 using Raven.Client.FileSystem.Extensions;
 using FileSystemInfo = Raven.Abstractions.FileSystem.FileSystemInfo;
 
@@ -72,11 +73,11 @@ namespace Raven.Database.FileSystem.Controllers
             var result = new HttpResponseMessage();
             if (InnerRequest.Method.Method != "OPTIONS")
             {
-                result = await RequestManager.HandleActualRequest(this,controllerContext, async () =>
-                {
-                    RequestManager.SetThreadLocalState(ReadInnerHeaders, FileSystemName);
-                    return await ExecuteActualRequest(controllerContext, cancellationToken, authorizer);
-                }, httpException => GetMessageWithObject(new { Error = httpException.Message }, HttpStatusCode.ServiceUnavailable));
+                result = await RequestManager.HandleActualRequest(this, controllerContext, async () =>
+                 {
+                     RequestManager.SetThreadLocalState(ReadInnerHeaders, FileSystemName);
+                     return await ExecuteActualRequest(controllerContext, cancellationToken, authorizer);
+                 }, httpException => GetMessageWithObject(new { Error = httpException.Message }, HttpStatusCode.ServiceUnavailable));
             }
 
             RequestManager.AddAccessControlHeaders(this, result);
@@ -93,7 +94,7 @@ namespace Raven.Database.FileSystem.Controllers
             if (authorizer.TryAuthorize(this, out authMsg) == false)
                 return authMsg;
 
-            if (IsInternalRequest == false) 
+            if (IsInternalRequest == false)
                 RequestManager.IncrementRequestCount();
 
             var fileSystemInternal = await FileSystemsLandlord.GetFileSystemInternal(FileSystemName);
@@ -222,10 +223,10 @@ namespace Raven.Database.FileSystem.Controllers
                     pageSize = 25;
 
                 paging = new PagingInfo
-                             {
-                                 PageSize = Math.Min(1024, Math.Max(1, pageSize)),
-                                 Start = Math.Max(start, 0)
-                             };
+                {
+                    PageSize = Math.Min(1024, Math.Max(1, pageSize)),
+                    Start = Math.Max(start, 0)
+                };
 
                 return paging;
             }
@@ -241,12 +242,12 @@ namespace Raven.Database.FileSystem.Controllers
         protected HttpResponseMessage StreamResult(string filename, Stream resultContent)
         {
             var response = new HttpResponseMessage
-                               {
-                                   Headers =
+            {
+                Headers =
                                        {
                                            TransferEncodingChunked = false
                                        }
-                               };
+            };
             long length;
             ContentRangeHeaderValue contentRange = null;
             if (Request.Headers.Range != null)
@@ -279,8 +280,8 @@ namespace Raven.Database.FileSystem.Controllers
             }
 
             response.Content = new StreamContent(resultContent)
-                                   {
-                                       Headers =
+            {
+                Headers =
                                            {
                                                ContentDisposition = new ContentDispositionHeaderValue("attachment")
                                                                         {
@@ -289,7 +290,7 @@ namespace Raven.Database.FileSystem.Controllers
                                               // ContentLength = length,
                                                ContentRange = contentRange,
                                            }
-                                   };
+            };
 
             return response;
         }
@@ -333,8 +334,18 @@ namespace Raven.Database.FileSystem.Controllers
             }
             catch (Exception e)
             {
-                var se = e.SimplifyException();
-                var msg = "Could not open file system named: " + tenantId + ", " + se.Message;
+                var cle = e as ConcurrentLoadTimeoutException;
+                string msg;
+                if (cle != null)
+                {
+                    msg = string.Format("The filesystem {0} is currently being loaded, but there are too many requests waiting for database load. Please try again later, database loading continues.", tenantId);
+                }
+                else
+                {
+                    var se = e.SimplifyException();
+                    msg = "Could not open file system named: " + tenantId + ", " + se.Message;
+                }
+
                 Logger.WarnException(msg, e);
                 throw new HttpException(503, msg, e);
             }
@@ -349,7 +360,7 @@ namespace Raven.Database.FileSystem.Controllers
                         Logger.Warn(msg);
                         throw new HttpException(503, msg);
                     }
-                    
+
                     args = new RequestWebApiEventArgs()
                     {
                         Controller = this,
@@ -483,7 +494,7 @@ namespace Raven.Database.FileSystem.Controllers
         protected static readonly IList<string> ReadOnlyHeaders = new List<string> { Constants.LastModified, Constants.MetadataEtagField }.AsReadOnly();
 
         protected virtual RavenJObject GetFilteredMetadataFromHeaders(IEnumerable<KeyValuePair<string, IEnumerable<string>>> headers)
-        {            
+        {
             return headers.FilterHeadersToObject();
         }
 

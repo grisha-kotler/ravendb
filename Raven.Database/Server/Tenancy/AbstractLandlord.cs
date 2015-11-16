@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,8 +12,11 @@ using Raven.Abstractions.Data;
 using Raven.Abstractions.Logging;
 using Raven.Abstractions.Util;
 using Raven.Database.Config;
+using Raven.Database.Extensions;
 using Raven.Database.Impl;
 using Raven.Database.Server.Connections;
+using Raven.Database.Server.Security;
+using Raven.Json.Linq;
 using Sparrow.Collections;
 
 namespace Raven.Database.Server.Tenancy
@@ -22,11 +26,13 @@ namespace Raven.Database.Server.Tenancy
     {
         protected static string DisposingLock = Guid.NewGuid().ToString();
 
+        protected readonly SemaphoreSlim ResourceSemaphore;
+
         protected static readonly ILog Logger = LogManager.GetCurrentClassLogger();
-        
+
         protected readonly ConcurrentSet<string> Locks = new ConcurrentSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        protected readonly ConcurrentDictionary<string, ManualResetEvent> Cleanups = new ConcurrentDictionary<string, ManualResetEvent>(StringComparer.OrdinalIgnoreCase); 
+        protected readonly ConcurrentDictionary<string, ManualResetEvent> Cleanups = new ConcurrentDictionary<string, ManualResetEvent>(StringComparer.OrdinalIgnoreCase);
 
         public readonly AtomicDictionary<Task<TResource>> ResourcesStoresCache =
                 new AtomicDictionary<Task<TResource>>(StringComparer.OrdinalIgnoreCase);
@@ -41,10 +47,14 @@ namespace Raven.Database.Server.Tenancy
         protected readonly InMemoryRavenConfiguration systemConfiguration;
         protected readonly DocumentDatabase systemDatabase;
 
+        protected readonly TimeSpan ConcurrentResourceLoadTimeout;
+
         protected AbstractLandlord(DocumentDatabase systemDatabase)
         {
             systemConfiguration = systemDatabase.Configuration;
             this.systemDatabase = systemDatabase;
+            ResourceSemaphore = new SemaphoreSlim(systemDatabase.Configuration.MaxConcurrentResourceLoads);
+            ConcurrentResourceLoadTimeout = systemDatabase.Configuration.ConcurrentResourceLoadTimeout;
         }
 
         public int MaxSecondsForTaskToWaitForDatabaseToLoad
@@ -53,6 +63,49 @@ namespace Raven.Database.Server.Tenancy
             {
                 return systemConfiguration.MaxSecondsForTaskToWaitForDatabaseToLoad;
             }
+        }
+
+        public IEnumerable<TransportState> GetUserAllowedTransportStates(IPrincipal user, DocumentDatabase systemDatabase, AnonymousUserAccessMode annonymouseUserAccessMode, MixedModeRequestAuthorizer mixedModeRequestAuthorizer, string authHeader)
+        {
+            foreach (var resourceName in GetUserAllowedResourcesByPrefix(user, systemDatabase, annonymouseUserAccessMode, mixedModeRequestAuthorizer, authHeader))
+            {
+                TransportState curTransportState;
+                if (ResourseTransportStates.TryGetValue(resourceName, out curTransportState))
+                    yield return curTransportState;
+            }
+        }
+
+        public string[] GetUserAllowedResourcesByPrefix(IPrincipal user, DocumentDatabase systemDatabase, AnonymousUserAccessMode annonymouseUserAccessMode, MixedModeRequestAuthorizer mixedModeRequestAuthorizer, string authHeader)
+        {
+            List<string> approvedResources = null;
+            var nextPageStart = 0;
+            var resources = systemDatabase.Documents
+                .GetDocumentsWithIdStartingWith(ResourcePrefix, null, null, 0,
+                systemDatabase.Configuration.MaxPageSize, CancellationToken.None, ref nextPageStart);
+
+            var reourcesNames = resources
+                .Select(database =>
+                    database.Value<RavenJObject>("@metadata").Value<string>("@id").Replace(ResourcePrefix, string.Empty)).ToArray();
+
+            if (annonymouseUserAccessMode == AnonymousUserAccessMode.None)
+            {
+                if (user == null)
+                    return null;
+
+                bool isAdministrator = user.IsAdministrator(annonymouseUserAccessMode);
+                if (isAdministrator == false)
+                {
+                    var authorizer = mixedModeRequestAuthorizer;
+                    approvedResources = authorizer.GetApprovedResources(user, authHeader, reourcesNames);
+                }
+            }
+
+            if (approvedResources != null)
+            {
+                reourcesNames = reourcesNames.Where(resourceName => approvedResources.Contains(resourceName)).ToArray();
+            }
+
+            return reourcesNames;
         }
 
         public void Unprotect(DatabaseDocument databaseDocument)
@@ -82,12 +135,12 @@ namespace Raven.Database.Server.Tenancy
             }
         }
 
-        public void Cleanup(string resource, 
-            TimeSpan? skipIfActiveInDuration, 
-            Func<TResource,bool> shouldSkip = null,
+        public void Cleanup(string resource,
+            TimeSpan? skipIfActiveInDuration,
+            Func<TResource, bool> shouldSkip = null,
             DocumentChangeTypes notificationType = DocumentChangeTypes.None)
         {
-            if(Cleanups.TryAdd(resource, new ManualResetEvent(false)) == false)
+            if (Cleanups.TryAdd(resource, new ManualResetEvent(false)) == false)
                 return;
 
             try
@@ -214,6 +267,15 @@ namespace Raven.Database.Server.Tenancy
                 // there is no else, the db is probably faulted
             });
             ResourcesStoresCache.Clear();
+
+            try
+            {
+                ResourceSemaphore.Dispose();
+            }
+            catch (Exception e)
+            {
+                Logger.WarnException("Failed to dispose resource semaphore", e);
+            }
         }
     }
 }

@@ -16,6 +16,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Raven.Abstractions.Exceptions;
 using Raven.Database.Storage;
 
 namespace Raven.Database.Server.Tenancy
@@ -30,7 +31,7 @@ namespace Raven.Database.Server.Tenancy
         public override string ResourcePrefix { get { return DATABASES_PREFIX; } }
 
         public int MaxIdleTimeForTenantDatabaseInSec { get; private set; }
-        
+
         public int FrequencyToCheckForIdleDatabasesInSec { get; private set; }
 
         public DatabasesLandlord(DocumentDatabase systemDatabase) : base(systemDatabase)
@@ -123,7 +124,6 @@ namespace Raven.Database.Server.Tenancy
         {
             if (string.Equals("<system>", name, StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(name))
                 return systemDatabase;
-
             Task<DocumentDatabase> db;
             if (TryGetOrCreateResourceStore(name, out db))
                 return await db;
@@ -133,7 +133,7 @@ namespace Raven.Database.Server.Tenancy
         public bool TryGetOrCreateResourceStore(string tenantId, out Task<DocumentDatabase> database)
         {
             if (Locks.Contains(DisposingLock))
-                throw new ObjectDisposedException("DatabaseLandlord","Server is shutting down, can't access any databases");
+                throw new ObjectDisposedException("DatabaseLandlord", "Server is shutting down, can't access any databases");
 
             if (Locks.Contains(tenantId))
                 throw new InvalidOperationException("Database '" + tenantId + "' is currently locked and cannot be accessed.");
@@ -161,31 +161,44 @@ namespace Raven.Database.Server.Tenancy
             if (config == null)
                 return false;
 
-            database = ResourcesStoresCache.GetOrAdd(tenantId, __ => Task.Factory.StartNew(() =>
+            var hasAcquired = false;
+            try
             {
+                if (!ResourceSemaphore.Wait(ConcurrentResourceLoadTimeout))
+                    throw new ConcurrentLoadTimeoutException("Too much databases loading concurrently, timed out waiting for them to load.");
+
+                hasAcquired = true;
+                database = ResourcesStoresCache.GetOrAdd(tenantId, __ => Task.Factory.StartNew(() =>
+                {
                 var transportState = ResourseTransportStates.GetOrAdd(tenantId, s => new TransportState());
 
-                AssertLicenseParameters(config);
-                var documentDatabase = new DocumentDatabase(config, transportState);
+                    AssertLicenseParameters(config);
+                    var documentDatabase = new DocumentDatabase(config, transportState);
 
                 documentDatabase.SpinBackgroundWorkers(false);
                 documentDatabase.Disposing += DocumentDatabaseDisposingStarted;
                 documentDatabase.DisposingEnded += DocumentDatabaseDisposingEnded;
                 documentDatabase.StorageInaccessible += UnloadDatabaseOnStorageInaccessible;
                 // register only DB that has incremental backup set.
-                documentDatabase.OnBackupComplete += OnDatabaseBackupCompleted;
+                    documentDatabase.OnBackupComplete += OnDatabaseBackupCompleted;
 
-                // if we have a very long init process, make sure that we reset the last idle time for this db.
-                LastRecentlyUsed.AddOrUpdate(tenantId, SystemTime.UtcNow, (_, time) => SystemTime.UtcNow);
-                return documentDatabase;
-            }).ContinueWith(task =>
-            {
-                if (task.Status == TaskStatus.Faulted) // this observes the task exception
+                    // if we have a very long init process, make sure that we reset the last idle time for this db.
+                    LastRecentlyUsed.AddOrUpdate(tenantId, SystemTime.UtcNow, (_, time) => SystemTime.UtcNow);
+                    return documentDatabase;
+                }).ContinueWith(task =>
                 {
-                    Logger.WarnException("Failed to create database " + tenantId, task.Exception);
-                }
-                return task;
-            }).Unwrap());
+                    if (task.Status == TaskStatus.Faulted) // this observes the task exception
+                    {
+                        Logger.WarnException("Failed to create database " + tenantId, task.Exception);
+                    }
+                    return task;
+                }).Unwrap());
+            }
+            finally
+            {
+                if (hasAcquired)
+                    ResourceSemaphore.Release();
+            }
 
             if (database.IsFaulted && database.Exception != null)
             {
@@ -216,14 +229,14 @@ namespace Raven.Database.Server.Tenancy
             if (config.Settings["Raven/CompiledIndexCacheDirectory"] == null)
             {
                 var compiledIndexCacheDirectory = parentConfiguration.CompiledIndexCacheDirectory;
-                config.Settings["Raven/CompiledIndexCacheDirectory"] = compiledIndexCacheDirectory;  
+                config.Settings["Raven/CompiledIndexCacheDirectory"] = compiledIndexCacheDirectory;
             }
 
             SetupTenantConfiguration(config);
 
             config.CustomizeValuesForDatabaseTenant(tenantId);
 
-            config.Settings["Raven/StorageEngine"] = parentConfiguration.DefaultStorageTypeName;           
+            config.Settings["Raven/StorageEngine"] = parentConfiguration.DefaultStorageTypeName;
 
             foreach (var setting in document.Settings)
             {

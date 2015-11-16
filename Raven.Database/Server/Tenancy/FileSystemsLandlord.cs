@@ -23,6 +23,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Raven.Abstractions.Exceptions;
 
 namespace Raven.Database.Server.Tenancy
 {
@@ -218,7 +219,14 @@ namespace Raven.Database.Server.Tenancy
             if (config == null)
                 return false;
 
-            fileSystem = ResourcesStoresCache.GetOrAdd(tenantId, __ => Task.Factory.StartNew(() =>
+            var hasAcquired = false;
+            try
+            {
+                if (!ResourceSemaphore.Wait(ConcurrentResourceLoadTimeout))
+                    throw new ConcurrentLoadTimeoutException("Too much filesystems loading concurrently, timed out waiting for them to load.");
+
+                hasAcquired = true;
+                fileSystem = ResourcesStoresCache.GetOrAdd(tenantId, __ => Task.Factory.StartNew(() =>
             {
                 var transportState = ResourseTransportStates.GetOrAdd(tenantId, s => new TransportState());
 
@@ -237,7 +245,13 @@ namespace Raven.Database.Server.Tenancy
                 }
                 return task;
             }).Unwrap());
-            return true;
+                return true;
+            }
+            finally
+            {
+                if (hasAcquired)
+                    ResourceSemaphore.Release();
+            }
         }
 
         private void AssertLicenseParameters(InMemoryRavenConfiguration config)
@@ -286,6 +300,7 @@ namespace Raven.Database.Server.Tenancy
         public async Task<RavenFileSystem> GetFileSystemInternal(string name)
         {
             Task<RavenFileSystem> db;
+
             if (TryGetOrCreateResourceStore(name, out db))
                 return await db;
             return null;

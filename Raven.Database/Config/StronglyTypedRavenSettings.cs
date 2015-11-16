@@ -266,6 +266,11 @@ namespace Raven.Database.Config
                 ServicePointManager.MaxServicePointIdleTime = Convert.ToInt32(settings["Raven/MaxServicePointIdleTime"]);
 
             WebSockets.InitialBufferPoolSize = new IntegerSetting(settings["Raven/WebSockets/InitialBufferPoolSize"], 128 * 1024);
+
+            MaxConcurrentResourceLoads = new IntegerSetting(settings[Constants.RavenMaxConcurrentResourceLoads], 8);
+            ConcurrentResourceLoadTimeout = new TimeSpanSetting(settings[Constants.ConcurrentResourceLoadTimeout],
+                TimeSpan.FromSeconds(15),
+                TimeSpanArgumentType.FromParse);
         }
 
         private string GetDefaultWebDir()
@@ -287,6 +292,11 @@ namespace Raven.Database.Config
 
             return val;
         }
+
+
+        public IntegerSetting MaxConcurrentResourceLoads { get; private set; }
+
+        public TimeSpanSetting ConcurrentResourceLoadTimeout { get; private set; }
 
         public IntegerSetting MaxClauseCount { get; private set; }
         public BooleanSetting AllowScriptsToAdjustNumberOfSteps { get; private set; }
