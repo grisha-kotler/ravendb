@@ -26,12 +26,15 @@ namespace Raven.Client.Indexes
         {
             return new IndexDefinition
             {
-                Map = @"from doc in docs 
+                Map = @"from doc in docs
+let etag = Etag.Parse(doc[""@metadata""][""@etag""]) 
 select new 
 { 
     Tag = doc[""@metadata""][""Raven-Entity-Name""], 
     LastModified = (DateTime)doc[""@metadata""][""Last-Modified""],
-    LastModifiedTicks = ((DateTime)doc[""@metadata""][""Last-Modified""]).Ticks 
+    LastModifiedTicks = ((DateTime)doc[""@metadata""][""Last-Modified""]).Ticks,
+    Restarts = etag.Restarts,
+    Changes = etag.Changes
 };",
                 Indexes =
                     {
@@ -42,7 +45,9 @@ select new
                     SortOptions =
                     {
                         {"LastModified",SortOptions.String},
-                        {"LastModifiedTicks", SortOptions.Long}
+                        {"LastModifiedTicks", SortOptions.Long},
+                        {"Restarts", SortOptions.Long},
+                        {"Changes", SortOptions.Long},
                     },
             
                 DisableInMemoryIndexing = true,

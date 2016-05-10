@@ -479,6 +479,7 @@ namespace Raven.Database.Actions
 
             Debug.Assert(index != null);
 
+            isPrecomputedBatchForNewIndexIsRunning = true;
             Func<long> precomputeTask = null;
             if (WorkContext.RunIndexing &&
                 name.Equals(Constants.DocumentsByEntityNameIndex, StringComparison.InvariantCultureIgnoreCase) == false &&
@@ -627,7 +628,7 @@ namespace Raven.Database.Actions
             var docsToIndex = new List<JsonDocument>();
             TransactionalStorage.Batch(actions =>
             {
-                var query = GetQueryForAllMatchingDocumentsForIndex(generator);
+                var query = GetQueryForAllMatchingDocumentsForIndex(generator, Database);
 
                 using (var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, WorkContext.CancellationToken))
                 using (var op = new QueryActions.DatabaseQueryOperation(Database, Constants.DocumentsByEntityNameIndex, new IndexQuery
@@ -719,9 +720,9 @@ namespace Raven.Database.Actions
 
         }
 
-        private string GetQueryForAllMatchingDocumentsForIndex(AbstractViewGenerator generator)
+        private static string GetQueryForAllMatchingDocumentsForIndex(AbstractViewGenerator generator, DocumentDatabase database)
         {
-            var terms = new TermsQueryRunner(Database)
+            var terms = new TermsQueryRunner(database)
                 .GetTerms(Constants.DocumentsByEntityNameIndex, "Tag", null, int.MaxValue);
 
             var sb = new StringBuilder();

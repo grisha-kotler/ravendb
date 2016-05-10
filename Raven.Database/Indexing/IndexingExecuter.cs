@@ -326,8 +326,9 @@ namespace Raven.Database.Indexing
             {
                 /*prefetchDisposable  = new WeakReference<IDisposable>(
                     PrefetchingBehavior.DocumentBatchFrom(LastIndexedEtag, out JsonDocs));*/
+
                 prefetchDisposable =
-                    PrefetchingBehavior.DocumentBatchFrom(LastIndexedEtag, out JsonDocs);
+                    PrefetchingBehavior.DocumentBatchFrom(LastIndexedEtag, out JsonDocs, Indexes.Select(x => x.IndexId).ToList());
             }
             
             ~IndexingGroup()

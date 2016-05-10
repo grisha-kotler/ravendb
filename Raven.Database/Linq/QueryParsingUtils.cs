@@ -34,6 +34,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using Raven.Abstractions.Data;
 using Directory = System.IO.Directory;
 
 namespace Raven.Database.Linq
@@ -62,7 +63,8 @@ namespace Raven.Database.Linq
                     typeof (LinqOnDynamic).Namespace,
                     typeof (Field).Namespace,
                     typeof (CultureInfo).Namespace,
-                    typeof (Regex).Namespace
+                    typeof (Regex).Namespace,
+                    typeof (Etag).Namespace
                 };
             }
 

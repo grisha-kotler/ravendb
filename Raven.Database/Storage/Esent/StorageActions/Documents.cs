@@ -312,7 +312,7 @@ namespace Raven.Database.Storage.Esent.StorageActions
                 }
 
                 var readCurrentDocument = ReadCurrentDocument(key);
-
+                readCurrentDocument.Metadata[Constants.SerializedSizeOnDisk] = readCurrentDocument.SerializedSizeOnDisk;
                 totalSize += readCurrentDocument.SerializedSizeOnDisk;
                 fetchedDocumentCount++;
 

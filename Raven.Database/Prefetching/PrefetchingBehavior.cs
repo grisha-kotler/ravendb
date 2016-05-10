@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using metrics;
@@ -15,10 +16,16 @@ using metrics.Core;
 using Raven.Abstractions;
 using Raven.Abstractions.Data;
 using Raven.Abstractions.Extensions;
+using Raven.Abstractions.Indexing;
 using Raven.Abstractions.Logging;
+using Raven.Database.Actions;
 using Raven.Database.Config;
 using Raven.Database.Impl;
 using Raven.Database.Indexing;
+using Raven.Database.Linq;
+using Raven.Database.Queries;
+using Raven.Database.Storage;
+using Raven.Json.Linq;
 
 namespace Raven.Database.Prefetching
 {
@@ -147,14 +154,15 @@ namespace Raven.Database.Prefetching
 
         #endregion
 
-        public IDisposable DocumentBatchFrom(Etag etag, out List<JsonDocument> documents)
+        public IDisposable DocumentBatchFrom(Etag etag, out List<JsonDocument> documents, List<int> indexIds = null)
         {
+            //var docs = GetDocumentsByIndex(indexIds, etag, null, new CancellationTokenSource(), 80000000000);
             LastTimeUsed = DateTime.UtcNow;
-            documents = GetDocumentsBatchFrom(etag);
+            documents = GetDocumentsBatchFrom(etag, null, indexIds);
             return UpdateCurrentlyUsedBatches(documents);
         }
 
-        public List<JsonDocument> GetDocumentsBatchFrom(Etag etag, int? take = null)
+        public List<JsonDocument> GetDocumentsBatchFrom(Etag etag, int? take = null, List<int> indexIds = null)
         {
             if (take != null && take.Value <= 0)
                 throw new ArgumentException("Take must be greater than 0.");
@@ -162,7 +170,30 @@ namespace Raven.Database.Prefetching
             HandleCollectingDocumentsAfterCommit(etag);
             RemoveOutdatedFutureIndexBatches(etag);
 
-            var results = GetDocsFromBatchWithPossibleDuplicates(etag, take);
+            List<JsonDocument> results;
+            if (indexIds != null && IsDefault == false)
+            {
+                var nextEtagToIndex = GetNextDocEtag(etag);
+                results = GetDocsFromBatchWithPossibleDuplicatesByIndex(indexIds, nextEtagToIndex, null, ref etag);
+                if (results.Count == 0)
+                {
+                    results = GetDocsFromBatchWithPossibleDuplicates(etag, take);
+                    if (results.Count == 0)
+                    {
+                        context.TransactionalStorage.Batch(actions =>
+                        {
+                            var document = actions.Documents.GetDocumentsAfter(etag.DecrementBy(1), 1, context.CancellationToken).FirstOrDefault();
+                            if (document != null)
+                                results.Add(document);
+                        });
+                    }
+                }
+            }
+            else
+            {
+                results = GetDocsFromBatchWithPossibleDuplicates(etag, take);
+            }
+
             // a single doc may appear multiple times, if it was updated while we were fetching things, 
             // so we have several versions of the same doc loaded, this will make sure that we will only  
             // take one of them.
@@ -176,6 +207,98 @@ namespace Raven.Database.Prefetching
             }
             returnedDocsMeter.Mark(results.Count);
             return results;
+        }
+
+        private List<JsonDocument> GetDocsFromBatchWithPossibleDuplicatesByIndex(List<int> indexIds, 
+            Etag fromEtag, Etag untilEtag, ref Etag lastIndexed, Reference<bool> earlyExit = null)
+        {
+            try
+            {
+                Etag lastIndexedInternal = null;
+                Func<IStorageActionsAccessor, int, long, TimeSpan, IEnumerable<JsonDocument>> getDocuments =
+                    (actions, numberOfItemsToProcessInSingleBatch, maxSize, timeOut) =>
+                        GetDocumentsByIndex(indexIds,
+                            fromEtag,
+                            untilEtag,
+                            actions,
+                            numberOfItemsToProcessInSingleBatch,
+                            maxSize,
+                            timeOut,
+                            out lastIndexedInternal,
+                            earlyExit);
+
+                var documents = GetDocumentsList(getDocuments);
+                if (lastIndexedInternal != null)
+                    lastIndexed = lastIndexedInternal;
+
+                return documents;
+            }
+            catch (Exception e)
+            {
+                return new List<JsonDocument>();
+            }
+        }
+
+        private List<JsonDocument> GetDocumentsList(Func<IStorageActionsAccessor, int, long, TimeSpan, IEnumerable<JsonDocument>> getDocuments)
+        {
+            List<JsonDocument> jsonDocs = null;
+
+            // We take an snapshot because the implementation of accessing Values from a ConcurrentDictionary involves a lock.
+            // Taking the snapshot should be safe enough. 
+            long currentlyUsedBatchSizesInBytes = autoTuner.CurrentlyUsedBatchSizesInBytes.Values.Sum();
+
+            using (DocumentCacher.SkipSetDocumentsInDocumentCache())
+                context.TransactionalStorage.Batch(actions =>
+                {
+                    //limit how much data we load from disk --> better adhere to memory limits
+                    var totalSizeAllowedToLoadInBytes =
+                        (context.Configuration.DynamicMemoryLimitForProcessing) -
+                        (prefetchingQueue.LoadedSize + currentlyUsedBatchSizesInBytes);
+
+                    // at any rate, we will load a min of 512Kb docs
+                    long maxSize = Math.Max(
+                        Math.Min(totalSizeAllowedToLoadInBytes, autoTuner.MaximumSizeAllowedToFetchFromStorageInBytes),
+                        1024*512);
+
+                    var sp = Stopwatch.StartNew();
+                    var totalSize = 0L;
+                    var largestDocSize = 0L;
+                    string largestDocKey = null;
+                    jsonDocs = getDocuments(actions,
+                            GetNumberOfItemsToProcessInSingleBatch(),
+                            maxSize,
+                            autoTuner.FetchingDocumentsFromDiskTimeout)
+                        .Where(x => x != null)
+                        .Select(doc =>
+                        {
+                            if (largestDocSize < doc.SerializedSizeOnDisk)
+                            {
+                                largestDocSize = doc.SerializedSizeOnDisk;
+                                largestDocKey = doc.Key;
+                            }
+
+                            totalSize += doc.SerializedSizeOnDisk;
+                            JsonDocument.EnsureIdInMetadata(doc);
+                            return doc;
+                        })
+                        .ToList();
+
+                    loadTimes.Enqueue(new DiskFetchPerformanceStats
+                    {
+                        LoadingTimeInMillseconds = sp.ElapsedMilliseconds,
+                        NumberOfDocuments = jsonDocs.Count,
+                        TotalSize = totalSize,
+                        LargestDocSize = largestDocSize,
+                        LargestDocKey = largestDocKey
+                    });
+                    while (loadTimes.Count > 10)
+                    {
+                        DiskFetchPerformanceStats _;
+                        loadTimes.TryDequeue(out _);
+                    }
+                });
+
+            return jsonDocs;
         }
 
         private void HandleCollectingDocumentsAfterCommit(Etag requestedEtag)
@@ -400,7 +523,7 @@ namespace Raven.Database.Prefetching
         private void LoadDocumentsFromDisk(Etag etag, Etag untilEtag)
         {
             var sp = Stopwatch.StartNew();
-            var jsonDocs = GetJsonDocsFromDisk(context.CancellationToken, etag, untilEtag);
+            var jsonDocs = GetJsonDocsFromDisk(etag, untilEtag, context.CancellationToken);
             if (log.IsDebugEnabled)
             {
                 log.Debug("Loaded {0} documents ({3:#,#;;0} kb) from disk, starting from etag {1}, took {2}ms", jsonDocs.Count, etag, sp.ElapsedMilliseconds,
@@ -418,7 +541,7 @@ namespace Raven.Database.Prefetching
             }
         }
 
-        private bool TryGetDocumentsFromQueue(Etag nextDocEtag, List<JsonDocument> items, int? take)
+        private bool TryGetDocumentsFromQueue(Etag nextDocEtag, List<JsonDocument> items, int? take, bool isFromIndex = false)
         {
             JsonDocument result;
 
@@ -597,72 +720,185 @@ namespace Raven.Database.Prefetching
             }
         }
 
-        private List<JsonDocument> GetJsonDocsFromDisk(CancellationToken cancellationToken, Etag etag, Etag untilEtag, Reference<bool> earlyExit = null)
+        private List<JsonDocument> GetJsonDocsFromDisk(Etag fromEtag, Etag untilEtag, 
+            CancellationToken cancellationToken, Reference<bool> earlyExit = null)
         {
-            List<JsonDocument> jsonDocs = null;
+            Func<IStorageActionsAccessor, int, long, TimeSpan, IEnumerable<JsonDocument>> getDocuments =
+                (actions, numberOfItemsToProcessInSingleBatch, maxSize, timeOut) =>
+                    actions.Documents
+                        .GetDocumentsAfter(
+                            fromEtag,
+                            numberOfItemsToProcessInSingleBatch,
+                            cancellationToken,
+                            maxSize,
+                            untilEtag,
+                            autoTuner.FetchingDocumentsFromDiskTimeout,
+                            earlyExit: earlyExit
+                        );
 
-            // We take an snapshot because the implementation of accessing Values from a ConcurrentDictionary involves a lock.
-            // Taking the snapshot should be safe enough. 
-            long currentlyUsedBatchSizesInBytes = autoTuner.CurrentlyUsedBatchSizesInBytes.Values.Sum();
+            return GetDocumentsList(getDocuments);
+        }
 
-            using (DocumentCacher.SkipSetDocumentsInDocumentCache())
-            context.TransactionalStorage.Batch(actions =>
+        private static void GetQueryForAllMatchingDocumentsForIndex(
+            DocumentDatabase database, AbstractViewGenerator generator, StringBuilder sb)
+        {
+            var terms = new TermsQueryRunner(database)
+                .GetTerms(Constants.DocumentsByEntityNameIndex, "Tag", null, int.MaxValue);
+
+            foreach (var entityName in generator.ForEntityNames)
             {
-                //limit how much data we load from disk --> better adhere to memory limits
-                var totalSizeAllowedToLoadInBytes =
-                    (context.Configuration.DynamicMemoryLimitForProcessing) -
-                    (prefetchingQueue.LoadedSize + currentlyUsedBatchSizesInBytes);
-
-                // at any rate, we will load a min of 512Kb docs
-                long maxSize = Math.Max(
-                    Math.Min(totalSizeAllowedToLoadInBytes, autoTuner.MaximumSizeAllowedToFetchFromStorageInBytes),
-                    1024 * 512);
-
-                var sp = Stopwatch.StartNew();
-                var totalSize = 0L;
-                var largestDocSize = 0L;
-                string largestDocKey = null;
-                jsonDocs = actions.Documents
-                    .GetDocumentsAfter(
-                        etag,
-                        GetNumberOfItemsToProcessInSingleBatch(),
-                        cancellationToken,
-                        maxSize,
-                        untilEtag,
-                        autoTuner.FetchingDocumentsFromDiskTimeout,
-                        earlyExit: earlyExit
-                    )
-                    .Where(x => x != null)
-                    .Select(doc =>
+                bool added = false;
+                foreach (var term in terms)
+                {
+                    if (string.Equals(entityName, term, StringComparison.OrdinalIgnoreCase))
                     {
-                        if (largestDocSize < doc.SerializedSizeOnDisk)
+                        AppendTermToQuery(term, sb);
+                        added = true;
+                    }
+                }
+                if (added == false)
+                    AppendTermToQuery(entityName, sb);
+            }
+        }
+
+        public static string GetQueryForAllMatchingDocumentsForIndex(DocumentDatabase database, AbstractViewGenerator generator)
+        {
+            var sb = new StringBuilder();
+            GetQueryForAllMatchingDocumentsForIndex(database, generator, sb);
+            return sb.ToString();
+        }
+
+        private static void AppendTermToQuery(string term, StringBuilder sb)
+        {
+            if (sb.Length != 0)
+                sb.Append(" OR ");
+
+            sb.Append("Tag:[[").Append(term).Append("]]");
+        }
+
+        private IEnumerable<JsonDocument> GetDocumentsByIndex(List<int> indexIds, Etag fromEtag, Etag untilEtag, 
+            IStorageActionsAccessor actions, int numberOfItemsToProcessInSingleBatch,
+            long maxSize, TimeSpan timeout, out Etag lastIndexed, Reference<bool> earlyExit = null)
+        {
+            using (var cts = new CancellationTokenSource())
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, context.CancellationToken))
+            {
+                var docsToIndex = new List<JsonDocument>();
+                lastIndexed = null;
+                if (indexIds == null)
+                {
+                    //
+                    return docsToIndex;
+                }
+
+                var sb = new StringBuilder();
+                foreach (var indexId in indexIds)
+                {
+                    var generator = context.Database.IndexDefinitionStorage.GetViewGenerator(indexId);
+                    if (generator == null)
+                        continue;
+
+                    if (generator.ForEntityNames.Count == 0)
+                    {
+                        //
+                        return docsToIndex;
+                    }
+
+                    GetQueryForAllMatchingDocumentsForIndex(context.Database, generator, sb);
+                }
+
+                if (sb.Length == 0)
+                {
+                    //
+                    return docsToIndex;
+                }
+
+                var isUntilEtag = untilEtag != null;
+
+                sb = new StringBuilder("(" + sb);
+                /*sb.Append(") AND (Etag: [")
+                    .Append(fromEtag)
+                    .Append(" TO null])");*/
+                sb.Append(") AND ((Restarts:")
+                    .Append(fromEtag.Restarts)
+                    .Append(" AND Changes_Range:[Lx")
+                    .Append(fromEtag.Changes)
+                    .Append(" TO ")
+                    .Append(isUntilEtag ? $"{untilEtag.Changes}Lx" : "*")
+                    .Append("]) OR (Restarts_Range:{Lx")
+                    .Append(fromEtag.Restarts)
+                    .Append(" TO ")
+                    .Append(isUntilEtag ? $"{untilEtag.Restarts}Lx" : "*")
+                    .Append("]))");
+
+                var duration = Stopwatch.StartNew();
+
+                using (var op = new QueryActions.DatabaseQueryOperation(context.Database, Constants.DocumentsByEntityNameIndex, new IndexQuery
+                {
+                    Query = sb.ToString(),
+                    PageSize = numberOfItemsToProcessInSingleBatch,
+                    SortedFields = new[] { /*new SortedField("Etag")*/new SortedField("Restarts"), new SortedField("Changes") }
+                }, actions, linked)
+                {
+                    ShouldSkipDuplicateChecking = true
+                })
+                {
+                    op.Init();
+
+                    /*if (log.IsDebugEnabled)
+                        log.Debug("For new index {0}, using precomputed indexing batch optimization for {1} docs", index,
+                              op.Header.TotalResults);*/
+
+                    int totalLoadedDocumentSize = 0;
+                    op.Execute(document =>
+                    {
+                        var metadata = document.Value<RavenJObject>(Constants.Metadata);
+                        var key = metadata.Value<string>("@id");
+                        var etag = Etag.Parse(metadata.Value<string>("@etag"));
+                        var lastModified = DateTime.Parse(metadata.Value<string>(Constants.LastModified));
+                        document.Remove(Constants.Metadata);
+                        var serializedSizeOnDisk = metadata.Value<int>(Constants.SerializedSizeOnDisk);
+                        metadata.Remove(Constants.SerializedSizeOnDisk);
+
+                        var doc = new JsonDocument
                         {
-                            largestDocSize = doc.SerializedSizeOnDisk;
-                            largestDocKey = doc.Key;
+                            DataAsJson = document,
+                            Etag = etag,
+                            Key = key,
+                            SerializedSizeOnDisk = serializedSizeOnDisk,
+                            LastModified = lastModified,
+                            SkipDeleteFromIndex = true,
+                            Metadata = metadata
+                        };
+
+                        totalLoadedDocumentSize += serializedSizeOnDisk;
+
+                        if (duration.Elapsed > timeout)
+                        {
+                            if (earlyExit != null)
+                                earlyExit.Value = true;
+                            return;
                         }
 
-                        totalSize += doc.SerializedSizeOnDisk;
-                        JsonDocument.EnsureIdInMetadata(doc);
-                        return doc;
-                    })
-                    .ToList();
+                        if (totalLoadedDocumentSize > maxSize)
+                        {
+                            if (untilEtag != null && earlyExit != null)
+                                earlyExit.Value = true;
+                            return;
+                        }
 
-                loadTimes.Enqueue(new DiskFetchPerformanceStats
-                {
-                    LoadingTimeInMillseconds = sp.ElapsedMilliseconds,
-                    NumberOfDocuments = jsonDocs.Count,
-                    TotalSize = totalSize,
-                    LargestDocSize = largestDocSize,
-                    LargestDocKey = largestDocKey
-                });
-                while (loadTimes.Count > 10)
-                {
-                    DiskFetchPerformanceStats _;
-                    loadTimes.TryDequeue(out _);
+                        docsToIndex.Add(doc);
+                    });
+
+                    if (numberOfItemsToProcessInSingleBatch > docsToIndex.Count &&
+                        (earlyExit == null || earlyExit.Value == false))
+                    {
+                        lastIndexed = op.Header.IndexEtag;
+                    }
                 }
-            });
 
-            return jsonDocs;
+                return docsToIndex;
+            }
         }
 
         public PrefetchingSummary GetSummary()
@@ -1082,8 +1318,8 @@ namespace Raven.Database.Prefetching
                     {
                         linkedToken.Token.ThrowIfCancellationRequested();
                         jsonDocuments = GetJsonDocsFromDisk(
-                            linkedToken.Token,
-                            Abstractions.Util.EtagUtil.Increment(nextEtag, -1), untilEtag, earlyExit);
+                            Abstractions.Util.EtagUtil.Increment(nextEtag, -1), untilEtag, 
+                            linkedToken.Token, earlyExit);
 
                         if (jsonDocuments.Count > 0)
                             break;
