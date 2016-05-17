@@ -247,7 +247,8 @@ namespace Raven.Database.Bundles.SqlReplication
                         var configsToWorkOn = sqlConfigGroup.ConfigsToWorkOn;
 
                         List<JsonDocument> documents;
-                        using (prefetchingBehavior.DocumentBatchFrom(sqlConfigGroup.LastReplicatedEtag, out documents))
+                        var entityNamesToIndex = sqlConfigGroup.ConfigsToWorkOn.Select(x => x.RavenEntityName).ToHashSet();
+                        using (prefetchingBehavior.DocumentBatchFrom(sqlConfigGroup.LastReplicatedEtag, out documents, entityNamesToIndex))
                         {
                             Etag latestEtag = null, lastBatchEtag = null;
                             if (documents.Count != 0)
