@@ -22,7 +22,10 @@ namespace Raven.Client.Document
     /// </summary>
     public class HiLoKeyGenerator : HiLoKeyGeneratorBase
     {
-        private readonly object generatorLock = new object();
+        private readonly ManualResetEvent mre = new ManualResetEvent(false);
+        private int lockTaken = 0;
+        private const int Locked = 1;
+        private const int UnLocked = 0;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="HiLoKeyGenerator"/> class.
@@ -57,13 +60,26 @@ namespace Raven.Client.Document
                 if (current <= myRange.Max)
                     return current;
 
-                lock (generatorLock)
+                if (Interlocked.CompareExchange(ref lockTaken, Locked, UnLocked) == Locked)
                 {
+                    mre.WaitOne();
+                    continue;
+                }
+
+                try
+                {
+                    mre.Reset();
+
                     if (Range != myRange)
-                        // Lock was contended, and the max has already been changed. Just get a new id as usual.
+                        // Lock was contended, and the max has already been changed.
                         continue;
 
                     Range = GetNextRange(commands);
+                }
+                finally
+                {
+                    mre.Set();
+                    lockTaken = 0;
                 }
             }
         }
