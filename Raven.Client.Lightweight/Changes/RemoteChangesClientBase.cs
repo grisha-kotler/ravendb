@@ -88,9 +88,9 @@ namespace Raven.Client.Changes
 
         public void WaitForAllPendingSubscriptions()
         {
-            foreach (var kvp in Counters)
+            foreach (var value in Counters.ValuesSnapshot)
             {
-                kvp.Value.Task.Wait();
+                value.Task.Wait();
             }
         }
 
@@ -272,9 +272,9 @@ namespace Raven.Client.Changes
                     if (task.IsFaulted == false)
                         return;
 
-                    foreach (var keyValuePair in Counters)
+                    foreach (var value in Counters.ValuesSnapshot)
                     {
-                        keyValuePair.Value.Error(task.Exception);
+                        value.Error(task.Exception);
                     }
                     Counters.Clear();
                 });
@@ -300,7 +300,7 @@ namespace Raven.Client.Changes
                 case "Heartbeat":
                     break;
                 default:
-                    NotifySubscribers(type, value, Counters.Snapshot);
+                    NotifySubscribers(type, value, Counters.ValuesSnapshot);
                     break;
             }
         }
@@ -316,7 +316,7 @@ namespace Raven.Client.Changes
         }
 
         protected abstract Task SubscribeOnServer();
-        protected abstract void NotifySubscribers(string type, RavenJObject value, IEnumerable<KeyValuePair<string, TConnectionState>> connections);
+        protected abstract void NotifySubscribers(string type, RavenJObject value, List<TConnectionState> connections);
 
         public virtual void OnCompleted()
         { }
