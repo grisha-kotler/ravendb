@@ -201,14 +201,13 @@ namespace Raven.Client.Changes
                         AvoidCachingRequest = true
                     };
                     var request = jsonRequestFactory.CreateHttpJsonRequest(requestParams);
-                    return lastSendTask =
-                        request.ExecuteRequestAsync()
-                            .ObserveException()
-                            .ContinueWith(task =>
-                            {
-                                lastSendTask = null;
-                                request.Dispose();
-                            });
+                    lastSendTask = request.ExecuteRequestAsync().ObserveException();
+
+                    return lastSendTask.ContinueWith(task =>
+                    {
+                        lastSendTask = null;
+                        request.Dispose();
+                    });
                 }
                 catch (Exception e)
                 {
