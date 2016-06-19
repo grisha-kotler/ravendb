@@ -6910,13 +6910,13 @@ body {
 .btn-group-vertical button {
   text-align: left;
 }
-#summary {
+#resources-page #summary {
   margin-top: 7px;
 }
-#summary #databases {
+#resources-page #summary .databases-summary {
   color: #af282e;
 }
-#summary #file-systems {
+#resources-page #summary .file-systems-summary {
   color: #7109AA;
 }
 #resources-page .btn-toolbar {

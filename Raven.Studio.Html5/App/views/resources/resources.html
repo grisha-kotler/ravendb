@@ -94,9 +94,9 @@
             <select data-bind="options: visibleOptions, optionsText: 'name', optionsValue: 'value', value: visibleResource" class="form-control"></select>
         </div>
         <div id="summary" class="btn-group">
-            <span id="databases" data-bind="text: databasesSummary"></span>
+            <span class="databases-summary" data-bind="text: databasesSummary"></span>
             <span data-bind="visible: isCommaNeeded">|</span>
-            <span id="file-systems" data-bind="text: fileSystemsSummary"></span>
+            <span class="file-systems-summary" data-bind="text: fileSystemsSummary"></span>
         </div>
         <div class="btn-group pull-right">
             <button class="btn btn-warning" data-bind="click: navigateToAdminSettings, visible: canNavigateToAdminSettings">Manage Your Server</button>
