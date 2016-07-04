@@ -9,7 +9,6 @@ using Raven.Abstractions.Data;
 using Raven.Abstractions.Extensions;
 using Raven.Abstractions.Logging;
 using Raven.Database.Config;
-using Raven.Database.Impl.BackgroundTaskExecuter;
 using Raven.Database.Json;
 using Raven.Database.Linq;
 using Raven.Database.Storage;
@@ -60,9 +59,6 @@ namespace Raven.Database.Indexing
                 }
             });
 
-            if (currentlyProcessedIndexes.TryAdd(indexToWorkOn.IndexId, indexToWorkOn.Index) == false)
-                return null;
-
             var performanceStats = new List<ReducingPerformanceStats>();
 
             try
@@ -105,9 +101,6 @@ namespace Raven.Database.Indexing
             }
             finally
             {
-                Index _;
-                currentlyProcessedIndexes.TryRemove(indexToWorkOn.IndexId, out _);
-
                 var postReducingOperations = new ReduceLevelPeformanceStats
                 {
                     Level = -1,
@@ -154,7 +147,6 @@ namespace Raven.Database.Indexing
                 {
                     LevelStats = new List<ReduceLevelPeformanceStats> { postReducingOperations }
                 });
-
             }
 
             return performanceStats.ToArray();
@@ -375,7 +367,7 @@ namespace Raven.Database.Indexing
             var needToMoveToSingleStepQueue = new ConcurrentQueue<HashSet<string>>();
             var alreadySingleStepQueue = new ConcurrentQueue<HashSet<string>>();
 
-            if ( Log.IsDebugEnabled )
+            if (Log.IsDebugEnabled)
                 Log.Debug(() => string.Format("Executing single step reducing for {0} keys [{1}]", keysToReduce.Count, string.Join(", ", keysToReduce)));
 
             var batchTimeWatcher = Stopwatch.StartNew();
@@ -506,7 +498,7 @@ namespace Raven.Database.Indexing
 
                         parallelOperations.Enqueue(parallelStats);
                     });
-                }, description: string.Format("Performing Single Step Reduction for index {0} from Etag {1} for {2} keys", index.Index.PublicName, index.Index.GetLastEtagFromStats(), keysToReduce.Count));
+                }, description: $"Performing Single Step Reduction for index {index.Index.PublicName} from Etag {index.Index.GetLastEtagFromStats()} for {keysToReduce.Count} keys");
 
                 reduceLevelStats.Operations.Add(new ParallelPerformanceStats
                 {
@@ -647,27 +639,48 @@ namespace Raven.Database.Indexing
         }
 
         
-        protected override void ExecuteIndexingWork(IList<IndexToWorkOn> indexesToWorkOn)
+        protected override void ExecuteIndexingWork(IList<IndexToWorkOn> mapReduceIndexes)
         {
             ReducingBatchInfo reducingBatchInfo = null;
 
-            int executedPartially = 0;
+            long executedPartially = 0;
             try
             {
+                var currentlyRunning = currentlyProcessedIndexes.Keys;
+                //we filter the indexes that are already running
+                var indexesToWorkOn = mapReduceIndexes.Where(x => currentlyRunning.Contains(x.IndexId) == false).ToList();
+
                 reducingBatchInfo = context.ReportReducingBatchStarted(indexesToWorkOn.Select(x => x.Index.PublicName).ToList());
 
-                context.Database.ReducingThreadPool.ExecuteBatch(indexesToWorkOn, index =>
+                context.Database.ReducingThreadPool.ExecuteBatch(indexesToWorkOn, indexToWorkOn =>
                 {
-                    var performanceStats = HandleReduceForIndex(index, context.CancellationToken);
-
-                    if (performanceStats != null)
-                    reducingBatchInfo.PerformanceStats.TryAdd(index.Index.PublicName, performanceStats);
-
-                    if (Thread.VolatileRead(ref executedPartially) == 1)
+                    if (currentlyProcessedIndexes.TryAdd(indexToWorkOn.IndexId, indexToWorkOn.Index) == false)
                     {
-                        context.NotifyAboutWork();
-            }
-                }, allowPartialBatchResumption: MemoryStatistics.AvailableMemoryInMb > 1.5 * context.Configuration.MemoryLimitForProcessingInMb, description: string.Format("Executing Indexes Reduction on {0} indexes", indexesToWorkOn.Count));
+                        //shouldn't happen since we already filtered the running reduce indexes
+                        Log.Warn("Tried to run a map-reduce index that is already running!");
+                        return;
+                    }
+
+                    try
+                    {
+                        var performanceStats = HandleReduceForIndex(indexToWorkOn, context.CancellationToken);
+
+                        if (performanceStats != null)
+                            reducingBatchInfo.PerformanceStats.TryAdd(indexToWorkOn.Index.PublicName, performanceStats);
+
+                        if (Interlocked.Read(ref executedPartially) == 1)
+                        {
+                            context.NotifyAboutWork();
+                        }
+                    }
+                    finally
+                    {
+                        Index _;
+                        currentlyProcessedIndexes.TryRemove(indexToWorkOn.IndexId, out _);
+                    }
+                }, allowPartialBatchResumption: MemoryStatistics.AvailableMemoryInMb > 1.5 * context.Configuration.MemoryLimitForProcessingInMb, 
+                    description: $"Executing indexes reduction on {indexesToWorkOn.Count} indexes");
+
                 Interlocked.Increment(ref executedPartially);
             }
             finally

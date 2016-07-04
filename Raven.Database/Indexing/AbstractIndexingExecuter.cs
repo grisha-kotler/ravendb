@@ -198,6 +198,7 @@ namespace Raven.Database.Indexing
                     }
                     if (IsIndexStale(indexesStat, actions, isIdle, localFoundOnlyIdleWork) == false)
                         continue;
+
                     var index = context.IndexStorage.GetIndexInstance(indexesStat.Id);
                     if (index == null) // not there
                         continue;
