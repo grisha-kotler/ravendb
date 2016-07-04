@@ -271,12 +271,6 @@ namespace Raven.Database.Indexing
                 disabledIndexIds, context.IndexStorage.Indexes, alreadySeen);
         }
 
-        private string GetIndexName(int indexId)
-        {
-            var index = context.IndexStorage.GetIndexInstance(indexId);
-            return index == null ? string.Format("N/A, index id: {0}", indexId) : index.PublicName;
-        }
-
         protected override void FlushAllIndexes()
         {
             context.IndexStorage.FlushMapIndexes();
@@ -771,7 +765,7 @@ namespace Raven.Database.Indexing
         {
             if (currentlyProcessedIndexes.TryAdd(batchForIndex.IndexId, batchForIndex.Index) == false)
             {
-                Log.Error("Entered handle indexing with index {0} inside currentlyProcessedIndexes", batchForIndex.Index.PublicName);
+                Log.Warn("Tried to run indexing for index '{0}' that is already running", batchForIndex.Index.PublicName);
                 batchForIndex.SignalIndexingComplete();
                 return null;
             }

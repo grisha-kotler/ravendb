@@ -664,7 +664,7 @@ namespace Raven.Database.Indexing
                     if (currentlyProcessedIndexes.TryAdd(indexToWorkOn.IndexId, indexToWorkOn.Index) == false)
                     {
                         //shouldn't happen since we already filtered the running reduce indexes
-                        Log.Warn("Tried to run a map-reduce index that is already running!");
+                        Log.Warn("Tried to run a map-reduce for index '{0}' that is already running!", GetIndexName(indexToWorkOn.IndexId));
                         return;
                     }
 
