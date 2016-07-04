@@ -9,6 +9,7 @@ using Raven.Abstractions.Data;
 using Raven.Abstractions.Extensions;
 using Raven.Abstractions.Logging;
 using Raven.Database.Config;
+using Raven.Database.Impl.BackgroundTaskExecuter;
 using Raven.Database.Json;
 using Raven.Database.Linq;
 using Raven.Database.Storage;
@@ -388,117 +389,123 @@ namespace Raven.Database.Indexing
 
                 context.Database.ReducingThreadPool.ExecuteBatch(keysToReduce, enumerator =>
                 {
-                    var parallelStats = new ParallelBatchStats
-                    {
-                        StartDelay = (long)(SystemTime.UtcNow - parallelProcessingStart).TotalMilliseconds
-                    };
-
-                    var localNeedToMoveToSingleStep = new HashSet<string>();
-                    needToMoveToSingleStepQueue.Enqueue(localNeedToMoveToSingleStep);
-                    var localAlreadySingleStep = new HashSet<string>();
-                    alreadySingleStepQueue.Enqueue(localAlreadySingleStep);
-
-                    var localKeys = new HashSet<string>();
                     while (enumerator.MoveNext())
                     {
-                        token.ThrowIfCancellationRequested();
-
-                        localKeys.Add(enumerator.Current);
-                    }
-
-                    transactionalStorage.Batch(actions =>
-                    {
-                        var getItemsToReduceParams = new GetItemsToReduceParams(index: index.IndexId, reduceKeys: new HashSet<string>(localKeys), level: 0, loadData: false, itemsToDelete: itemsToDelete)
+                        var parallelStats = new ParallelBatchStats
                         {
-                            Take = int.MaxValue // just get all, we do the rate limit when we load the number of keys to reduce, anyway
+                            StartDelay = (long)(SystemTime.UtcNow - parallelProcessingStart).TotalMilliseconds
                         };
 
-                        var getItemsToReduceDuration = new Stopwatch();
-
-                        int scheduledItemsSum = 0;
-                        int scheduledItemsCount = 0;
-                        List<int> scheduledItemsMappedBuckets = new List<int>();
-                        using (StopwatchScope.For(getItemsToReduceDuration))
-                        {
-                            foreach (var item in actions.MapReduce.GetItemsToReduce(getItemsToReduceParams, token))
-                            {
-                                scheduledItemsMappedBuckets.Add(item.Bucket);
-                                scheduledItemsSum += item.Size;
-                                scheduledItemsCount++;
-                            }
-                        }
-
-                        parallelStats.Operations.Add(PerformanceStats.From(IndexingOperation.Reduce_GetItemsToReduce, getItemsToReduceDuration.ElapsedMilliseconds));
-
-                        autoTuner.CurrentlyUsedBatchSizesInBytes.GetOrAdd(reducingBatchThrottlerId, scheduledItemsSum);
-
-                        if (scheduledItemsCount == 0)
-                        {
-                            // Here we have an interesting issue. We have scheduled reductions, because GetReduceTypesPerKeys() returned them
-                            // and at the same time, we don't have any at level 0. That probably means that we have them at level 1 or 2.
-                            // They shouldn't be here, and indeed, we remove them just a little down from here in this function.
-                            // That said, they might have smuggled in between versions, or something happened to cause them to be here.
-                            // In order to avoid that, we forcibly delete those extra items from the scheduled reductions, and move on
-
-                            Log.Warn("Found single reduce items ({0}) that didn't have any items to reduce. Deleting level 1 & level 2 items for those keys. (If you can reproduce this, please contact support@ravendb.net)", string.Join(", ", keysToReduce));
-
-                            var deletingScheduledReductionsDuration = Stopwatch.StartNew();
-
-                            using (StopwatchScope.For(deletingScheduledReductionsDuration))
-                            {
-                                foreach (var reduceKey in keysToReduce)
-                                {
-                                    token.ThrowIfCancellationRequested();
-
-                                    actions.MapReduce.DeleteScheduledReduction(index.IndexId, 1, reduceKey);
-                                    actions.MapReduce.DeleteScheduledReduction(index.IndexId, 2, reduceKey);
-                                }
-                            }
-
-                            parallelStats.Operations.Add(PerformanceStats.From(IndexingOperation.Reduce_DeleteScheduledReductions, deletingScheduledReductionsDuration.ElapsedMilliseconds));
-                        }
-
-                        var removeReduceResultsDuration = new Stopwatch();
-
-                        foreach (var reduceKey in localKeys)
+                        var localKeys = new HashSet<string>();
+                        for (var i = 0; i < RavenThreadPool.DefaultPageSize && enumerator.MoveNext(); i++)
                         {
                             token.ThrowIfCancellationRequested();
 
-                            var lastPerformedReduceType = actions.MapReduce.GetLastPerformedReduceType(index.IndexId, reduceKey);
-
-                            if (lastPerformedReduceType != ReduceType.SingleStep)
-                                localNeedToMoveToSingleStep.Add(reduceKey);
-
-                            if (lastPerformedReduceType == ReduceType.SingleStep)
-                                localAlreadySingleStep.Add(reduceKey);
-
-                            if (lastPerformedReduceType != ReduceType.MultiStep)
-                                continue;
-
-                            if ( Log.IsDebugEnabled )
-                            {
-                                Log.Debug("Key {0} was moved from multi step to single step reduce, removing existing reduce results records", reduceKey);
-                            }
-
-                            using (StopwatchScope.For(removeReduceResultsDuration))
-                            {
-                                // now we are in single step but previously multi step reduce was performed for the given key
-                                var mappedBuckets = actions.MapReduce.GetMappedBuckets(index.IndexId, reduceKey, token);        
-
-                                // add scheduled items too to be sure we will delete reduce results of already deleted documents
-                                foreach (var mappedBucket in mappedBuckets.Union(scheduledItemsMappedBuckets))
-                                {
-                                    actions.MapReduce.RemoveReduceResults(index.IndexId, 1, reduceKey, mappedBucket);
-                                    actions.MapReduce.RemoveReduceResults(index.IndexId, 2, reduceKey, mappedBucket / 1024);
-                                }
-                            }
+                            localKeys.Add(enumerator.Current);
                         }
 
-                        parallelStats.Operations.Add(PerformanceStats.From(IndexingOperation.Reduce_RemoveReduceResults, removeReduceResultsDuration.ElapsedMilliseconds));
+                        if (localKeys.Count == 0)
+                            return;
 
-                        parallelOperations.Enqueue(parallelStats);
-                    });
-                }, description: $"Performing Single Step Reduction for index {index.Index.PublicName} from Etag {index.Index.GetLastEtagFromStats()} for {keysToReduce.Count} keys");
+                        var localNeedToMoveToSingleStep = new HashSet<string>();
+                        needToMoveToSingleStepQueue.Enqueue(localNeedToMoveToSingleStep);
+                        var localAlreadySingleStep = new HashSet<string>();
+                        alreadySingleStepQueue.Enqueue(localAlreadySingleStep);
+
+                        transactionalStorage.Batch(actions =>
+                        {
+                            var getItemsToReduceParams = new GetItemsToReduceParams(index: index.IndexId, reduceKeys: new HashSet<string>(localKeys), level: 0, loadData: false, itemsToDelete: itemsToDelete)
+                            {
+                                Take = int.MaxValue // just get all, we do the rate limit when we load the number of keys to reduce, anyway
+                            };
+
+                            var getItemsToReduceDuration = new Stopwatch();
+
+                            int scheduledItemsSum = 0;
+                            int scheduledItemsCount = 0;
+                            List<int> scheduledItemsMappedBuckets = new List<int>();
+                            using (StopwatchScope.For(getItemsToReduceDuration))
+                            {
+                                foreach (var item in actions.MapReduce.GetItemsToReduce(getItemsToReduceParams, token))
+                                {
+                                    scheduledItemsMappedBuckets.Add(item.Bucket);
+                                    scheduledItemsSum += item.Size;
+                                    scheduledItemsCount++;
+                                }
+                            }
+
+                            parallelStats.Operations.Add(PerformanceStats.From(IndexingOperation.Reduce_GetItemsToReduce, getItemsToReduceDuration.ElapsedMilliseconds));
+
+                            autoTuner.CurrentlyUsedBatchSizesInBytes.GetOrAdd(reducingBatchThrottlerId, scheduledItemsSum);
+
+                            if (scheduledItemsCount == 0)
+                            {
+                                // Here we have an interesting issue. We have scheduled reductions, because GetReduceTypesPerKeys() returned them
+                                // and at the same time, we don't have any at level 0. That probably means that we have them at level 1 or 2.
+                                // They shouldn't be here, and indeed, we remove them just a little down from here in this function.
+                                // That said, they might have smuggled in between versions, or something happened to cause them to be here.
+                                // In order to avoid that, we forcibly delete those extra items from the scheduled reductions, and move on
+
+                                Log.Warn("Found single reduce items ({0}) that didn't have any items to reduce. Deleting level 1 & level 2 items for those keys. (If you can reproduce this, please contact support@ravendb.net)", string.Join(", ", keysToReduce));
+
+                                var deletingScheduledReductionsDuration = Stopwatch.StartNew();
+
+                                using (StopwatchScope.For(deletingScheduledReductionsDuration))
+                                {
+                                    foreach (var reduceKey in keysToReduce)
+                                    {
+                                        token.ThrowIfCancellationRequested();
+
+                                        actions.MapReduce.DeleteScheduledReduction(index.IndexId, 1, reduceKey);
+                                        actions.MapReduce.DeleteScheduledReduction(index.IndexId, 2, reduceKey);
+                                    }
+                                }
+
+                                parallelStats.Operations.Add(PerformanceStats.From(IndexingOperation.Reduce_DeleteScheduledReductions, deletingScheduledReductionsDuration.ElapsedMilliseconds));
+                            }
+
+                            var removeReduceResultsDuration = new Stopwatch();
+
+                            foreach (var reduceKey in localKeys)
+                            {
+                                token.ThrowIfCancellationRequested();
+
+                                var lastPerformedReduceType = actions.MapReduce.GetLastPerformedReduceType(index.IndexId, reduceKey);
+
+                                if (lastPerformedReduceType != ReduceType.SingleStep)
+                                    localNeedToMoveToSingleStep.Add(reduceKey);
+
+                                if (lastPerformedReduceType == ReduceType.SingleStep)
+                                    localAlreadySingleStep.Add(reduceKey);
+
+                                if (lastPerformedReduceType != ReduceType.MultiStep)
+                                    continue;
+
+                                if (Log.IsDebugEnabled)
+                                {
+                                    Log.Debug("Key {0} was moved from multi step to single step reduce, removing existing reduce results records", reduceKey);
+                                }
+
+                                using (StopwatchScope.For(removeReduceResultsDuration))
+                                {
+                                    // now we are in single step but previously multi step reduce was performed for the given key
+                                    var mappedBuckets = actions.MapReduce.GetMappedBuckets(index.IndexId, reduceKey, token);
+
+                                    // add scheduled items too to be sure we will delete reduce results of already deleted documents
+                                    foreach (var mappedBucket in mappedBuckets.Union(scheduledItemsMappedBuckets))
+                                    {
+                                        actions.MapReduce.RemoveReduceResults(index.IndexId, 1, reduceKey, mappedBucket);
+                                        actions.MapReduce.RemoveReduceResults(index.IndexId, 2, reduceKey, mappedBucket/1024);
+                                    }
+                                }
+                            }
+
+                            parallelStats.Operations.Add(PerformanceStats.From(IndexingOperation.Reduce_RemoveReduceResults, removeReduceResultsDuration.ElapsedMilliseconds));
+
+                            parallelOperations.Enqueue(parallelStats);
+                        });
+                    }
+                }, description: $"Performing single step reduction for index {index.Index.PublicName} from etag {index.Index.GetLastEtagFromStats()} for {keysToReduce.Count} keys");
 
                 reduceLevelStats.Operations.Add(new ParallelPerformanceStats
                 {
