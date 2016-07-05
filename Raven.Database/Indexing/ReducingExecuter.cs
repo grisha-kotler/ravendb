@@ -128,7 +128,7 @@ namespace Raven.Database.Indexing
                         
                         using (StopwatchScope.For(deletingScheduledReductionsDuration))
                         {
-                            latest = actions.MapReduce.DeleteScheduledReduction(itemsToDelete);
+                            latest = actions.MapReduce.DeleteScheduledReduction(itemsToDelete, token);
                         }
 
                         if (latest == null)
