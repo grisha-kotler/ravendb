@@ -391,21 +391,24 @@ namespace Raven.Database.Indexing
                 {
                     while (enumerator.MoveNext())
                     {
-                        var parallelStats = new ParallelBatchStats
-                        {
-                            StartDelay = (long)(SystemTime.UtcNow - parallelProcessingStart).TotalMilliseconds
-                        };
-
                         var localKeys = new HashSet<string>();
-                        for (var i = 0; i < RavenThreadPool.DefaultPageSize && enumerator.MoveNext(); i++)
+                        for (var i = 0; i < RavenThreadPool.DefaultPageSize; i++)
                         {
                             token.ThrowIfCancellationRequested();
 
                             localKeys.Add(enumerator.Current);
+
+                            if (enumerator.MoveNext() == false)
+                                break;
                         }
 
                         if (localKeys.Count == 0)
                             return;
+
+                        var parallelStats = new ParallelBatchStats
+                        {
+                            StartDelay = (long)(SystemTime.UtcNow - parallelProcessingStart).TotalMilliseconds
+                        };
 
                         var localNeedToMoveToSingleStep = new HashSet<string>();
                         needToMoveToSingleStepQueue.Enqueue(localNeedToMoveToSingleStep);
