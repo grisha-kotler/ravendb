@@ -397,6 +397,12 @@ interface replicationStatsDto {
     LastError: string;
 }
 
+interface documentCountDto {
+    Count: number;
+    Type: string;
+    IsEtl: boolean;
+}
+
 interface indexMergeSuggestionsDto {
     Suggestions: suggestionDto[];
     Unmergables: Object;

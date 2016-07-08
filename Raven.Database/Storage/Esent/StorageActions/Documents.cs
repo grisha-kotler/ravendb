@@ -7,7 +7,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -340,6 +339,47 @@ namespace Raven.Database.Storage.Esent.StorageActions
                 lastProcessedDocument(lastDocEtag);
         }
 
+        public long GetDocumentsCountAfterEtag(
+            Etag etag, CancellationToken cancellationToken,
+            Reference<bool> earlyExit, int maxTake, HashSet<string> entityNames = null)
+        {
+            earlyExit.Value = false;
+
+            Api.JetSetCurrentIndex(session, Documents, "by_etag");
+            Api.MakeKey(session, Documents, etag.TransformToValueForEsentSorting(), MakeKeyGrbit.NewKey);
+            if (Api.TrySeek(session, Documents, SeekGrbit.SeekGT) == false)
+                return 0;
+
+            long fetchedDocumentCount = 0;
+            long fetchedEtlDocumentCount = 0;
+
+            do
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                fetchedDocumentCount++;
+
+                if (entityNames != null)
+                {
+                    var metadataBuffer = Api.RetrieveColumn(session, Documents, tableColumnsCache.DocumentsColumns["metadata"]);
+                    var metadata = metadataBuffer.ToJObject();
+                    var entityName = metadata.Value<string>("Raven-Entity-Name");
+                    if (entityName != null && entityNames.Contains(entityName))
+                    {
+                        fetchedEtlDocumentCount++;
+                    }
+                }
+
+                if (fetchedDocumentCount < maxTake)
+                    continue;
+
+                earlyExit.Value = true;
+                break;
+
+            } while (Api.TryMoveNext(session, Documents));
+
+            return entityNames == null ? fetchedDocumentCount : fetchedEtlDocumentCount;
+        }
+
         public IEnumerable<JsonDocument> GetDocumentsAfter(Etag etag, int take, CancellationToken cancellationToken, long? maxSize = null, Etag untilEtag = null, TimeSpan? timeout = null, Action<Etag> lastProcessedOnFailure = null,
             Reference<bool> earlyExit = null)
         {
@@ -482,7 +522,6 @@ namespace Raven.Database.Storage.Esent.StorageActions
 
         public Etag GetEtagAfterSkip(Etag etag, int skip, CancellationToken cancellationToken, out int skipped)
         {
-            
             Api.JetSetCurrentIndex(session, Documents, "by_etag");
             Api.MakeKey(session, Documents, etag.TransformToValueForEsentSorting(), MakeKeyGrbit.NewKey);
             if (Api.TrySeek(session, Documents, SeekGrbit.SeekGE) == false)

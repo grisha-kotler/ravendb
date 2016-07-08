@@ -265,6 +265,64 @@ namespace Raven.Database.Storage.Voron.StorageActions
                 lastProcessedDocument(lastDocEtag);
         }
 
+        public long GetDocumentsCountAfterEtag(
+            Etag etag, CancellationToken cancellationToken, 
+            Reference<bool> earlyExit, int maxTake, HashSet<string> entityNames = null)
+        {
+            if (string.IsNullOrEmpty(etag))
+                throw new ArgumentNullException("etag");
+
+            earlyExit.Value = false;
+
+            using (var iterator = tableStorage.Documents.GetIndex(Tables.Documents.Indices.KeyByEtag)
+                .Iterate(Snapshot, writeBatch.Value))
+            {
+                var slice = (Slice)etag.ToString();
+                if (iterator.Seek(slice) == false)
+                    return 0;
+
+                if (iterator.CurrentKey.Equals(slice)) // need gt, not ge
+                {
+                    if (iterator.MoveNext() == false)
+                        return 0;
+                }
+
+                long fetchedDocumentCount = 0;
+                long fetchedEtlDocumentCount = 0;
+
+                do
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    fetchedDocumentCount++;
+
+                    if (entityNames != null)
+                    {
+                        var key = GetKeyFromCurrent(iterator);
+                        var normalizedKey = CreateKey(key);
+                        var sliceKey = (Slice)normalizedKey;
+
+                        int metadataSize;
+                        var metadataDocument = ReadDocumentMetadata(normalizedKey, sliceKey, out metadataSize);
+                        var entityName = metadataDocument.Metadata.Value<string>("Raven-Entity-Name");
+                        if (entityName != null && entityNames.Contains(entityName))
+                        {
+                            fetchedEtlDocumentCount++;
+                        }
+                    }
+
+                    if (fetchedDocumentCount < maxTake)
+                        continue;
+
+                    earlyExit.Value = true;
+                    break;
+
+                } while (iterator.MoveNext());
+
+                return entityNames == null ? fetchedDocumentCount : fetchedEtlDocumentCount;
+            }
+        }
+
         public IEnumerable<JsonDocument> GetDocumentsAfter(Etag etag, int take, CancellationToken cancellationToken, long? maxSize = null, Etag untilEtag = null, TimeSpan? timeout = null, Action<Etag> lastProcessedOnFailure = null, Reference<bool> earlyExit = null)
         {
             return GetDocumentsAfterWithIdStartingWith(etag, null, take, cancellationToken, maxSize, untilEtag, timeout, lastProcessedOnFailure, earlyExit);
@@ -372,7 +430,7 @@ namespace Raven.Database.Storage.Voron.StorageActions
             if (metadataDocument == null)
             {
                 if (logger.IsDebugEnabled)
-                logger.Debug("Document with key='{0}' was not found", key);
+                    logger.Debug("Document with key='{0}' was not found", key);
                 return null;
             }
 

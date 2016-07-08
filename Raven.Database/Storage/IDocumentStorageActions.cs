@@ -35,6 +35,8 @@ namespace Raven.Database.Storage
             Reference<bool> earlyExit = null);
         IEnumerable<JsonDocument> GetDocumentsWithIdStartingWith(string idPrefix, int start, int take, string skipAfter);
         Etag GetEtagAfterSkip(Etag etag, int skip, CancellationToken cancellationToken, out int skipped);
+        long GetDocumentsCountAfterEtag(Etag etag, CancellationToken cancellationToken, 
+            Reference<bool> earlyExit, int maxTake, HashSet<string> entityNames = null);
 
         IEnumerable<JsonDocument> GetDocuments(int start);
 

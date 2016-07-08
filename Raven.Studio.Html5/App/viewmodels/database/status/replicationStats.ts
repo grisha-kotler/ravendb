@@ -9,9 +9,10 @@ import fileDownloader = require("common/fileDownloader");
 import getDatabaseSettingsCommand = require("commands/resources/getDatabaseSettingsCommand");
 import getReplicationTopology = require("commands/database/replication/getReplicationTopology");
 import getReplicationPerfStatsCommand = require("commands/database/debug/getReplicationPerfStatsCommand");
-import d3 = require('d3/d3');
-import nv = require('nvd3');
-import dagre = require('dagre');
+import getDocumentsLeftToReplicate = require("commands/database/replication/getDocumentsLeftToReplicate");
+import d3 = require("d3/d3");
+import nv = require("nvd3");
+import dagre = require("dagre");
 
 class replicationStats extends viewModelBase {
 
@@ -28,6 +29,10 @@ class replicationStats extends viewModelBase {
 
     topology = ko.observable<replicationTopologyDto>(null);
     currentLink = ko.observable<replicationTopologyConnectionDto>(null);
+    documentToReplicateText = ko.observable<string>("");
+    isLoadingDocumentToReplicateCount = ko.observable<boolean>(false);
+    databaseId = ko.observable<string>();
+    canCalculateDocumentToReplicateCount: KnockoutComputed<boolean>;
 
     hasReplicationEnabled = ko.observable(false); 
 
@@ -42,7 +47,6 @@ class replicationStats extends viewModelBase {
     svg: D3.Selection;
     colors = d3.scale.category10();
     line = d3.svg.line().x(d => d.x).y(d => d.y);
-
 
     // perf stats related variables start
     jsonData: any[] = [];
@@ -67,16 +71,43 @@ class replicationStats extends viewModelBase {
     legend: D3.UpdateSelection;
     // perf stats related variables end
 
-
     hasSaveAsPngSupport = ko.computed(() => {
         return !(navigator && navigator.msSaveBlob);
     });
-
 
     constructor() {
         super();
 
         this.updateCurrentNowTime();
+
+        this.canCalculateDocumentToReplicateCount = ko.computed(() => {
+            var currentLink = this.currentLink();
+            if (!currentLink) {
+                return false;
+            }
+
+            var topology = this.topology();
+            if (!topology) {
+                return false;
+            }
+
+            var currentServer = topology
+                .Connections
+                .first((x: replicationTopologyConnectionDto) => x.SendServerId === this.databaseId());
+
+            if (!currentServer) {
+                return false;
+            }
+
+            if (currentServer.Source === currentLink.Source) {
+                return true;
+            }
+
+            var sourceServerUrl = currentServer.Source;
+            var destinations = this.getAllReachableDestinationsFrom(sourceServerUrl, topology.Connections);
+
+            return destinations.contains(currentLink.Source);
+        });
     }
 
     activate(args) {
@@ -85,18 +116,12 @@ class replicationStats extends viewModelBase {
         this.activeDatabase.subscribe(() => {
             this.fetchReplStats();
             this.checkIfHasReplicationEnabled();
+            this.databaseId(this.activeDatabase().statistics().databaseId());
         });
-        this.updateHelpLink('ES8PCB');
-        this.fetchReplStats();
-    }
 
-    checkIfHasReplicationEnabled() {
-        new getDatabaseSettingsCommand(this.activeDatabase())
-            .execute()
-            .done(document => {
-                var documentSettings = document.Settings["Raven/ActiveBundles"];
-                this.hasReplicationEnabled(documentSettings.indexOf("Replication") !== -1);
-            });
+        this.updateHelpLink("ES8PCB");
+        this.fetchReplStats();
+        this.databaseId(this.activeDatabase().statistics().databaseId());
     }
 
     attached() {
@@ -110,6 +135,80 @@ class replicationStats extends viewModelBase {
 
     compositionComplete() {
         this.resize();
+    }
+
+    detached() {
+        super.detached();
+
+        $("#visualizerContainer").off('DynamicHeightSet');
+        nv.tooltip.cleanup();
+    }
+
+    getAllReachableDestinationsFrom(sourceServerUrl: string, connections: replicationTopologyConnectionDto[]): string[] {
+        var result: string[] = [];
+
+        connections.forEach(connection => {
+            if (sourceServerUrl === connection.Source) {
+                result.push(connection.Destination);
+
+                var updatedConncetions = connections.filter(x => x.Destination !== sourceServerUrl);
+
+                var reachables = this.getAllReachableDestinationsFrom(connection.Destination, updatedConncetions);
+                result.pushAll(reachables);
+            }
+        });
+
+        return result;
+    }
+
+    checkIfHasReplicationEnabled() {
+        new getDatabaseSettingsCommand(this.activeDatabase())
+            .execute()
+            .done(document => {
+                var documentSettings = document.Settings["Raven/ActiveBundles"];
+                this.hasReplicationEnabled(documentSettings.indexOf("Replication") !== -1);
+            });
+    }
+
+    getDocumentsToReplicateCount() {
+        var current = this.currentLink();
+        if (current == null) {
+            return;
+        }
+        
+        var destinationSplitted = current.Destination.split("/databases/");
+        var databaseName = destinationSplitted.last();
+        var destinationUrl = destinationSplitted.first() + "/";
+        var sourceUrl = current.Source.split("/databases/").first() + "/";
+
+        var sourceId = current.SendServerId;
+        if (sourceId === "00000000-0000-0000-0000-000000000000") {
+            sourceId = current.StoredServerId;
+        }
+
+        this.isLoadingDocumentToReplicateCount(true);
+        var getDocsToReplicateCount =
+            new getDocumentsLeftToReplicate(sourceUrl, destinationUrl, databaseName,
+                    sourceId, this.activeDatabase())
+                .execute();
+
+        getDocsToReplicateCount
+            .done((documentCount: documentCountDto) => {
+                var message = "";
+                if (documentCount.Type === "Approximate") {
+                    message += "Approximately more than ";
+                }
+
+                message += documentCount.Count.toLocaleString();
+
+                if (documentCount.IsEtl) {
+                    message += " (ETL)";
+                }
+
+                this.documentToReplicateText(message);
+            })
+            .fail(() => this.documentToReplicateText("Couldn't calculate document count!"))
+            .always(() => this.isLoadingDocumentToReplicateCount(false));
     }
 
     resize() {
@@ -279,8 +378,9 @@ class replicationStats extends viewModelBase {
                 var currentSelection = d3.select(".selected").node();
                 d3.selectAll(".selected").classed("selected", false);
                 d3.select(this).classed('selected', currentSelection != this);
-                self.currentLink(currentSelection != this ? d : null)
-             });
+                self.currentLink(currentSelection != this ? d : null);
+                self.documentToReplicateText("");
+            });
     }
 
 
@@ -645,13 +745,6 @@ class replicationStats extends viewModelBase {
             .rollup(l => l.length)
             .entries(statsInline);
         return byKey.map(d => d.key);
-    }
-
-    detached() {
-        super.detached();
-
-        $("#visualizerContainer").off('DynamicHeightSet');
-        nv.tooltip.cleanup();
     }
 
     replicationStatToggle() {

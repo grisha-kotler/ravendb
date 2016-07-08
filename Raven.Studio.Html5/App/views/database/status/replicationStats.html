@@ -200,12 +200,27 @@
                                                         <td>DestinationToSourceState</td>
                                                         <td data-bind="text: DestinationToSourceState"></td>
                                                     </tr>
-                                                    <tr data-bind="if: Errors">
+                                                    <tr data-bind="if: !!Errors && Errors.length > 0">
                                                         <td>Errors</td>
                                                         <td>
                                                             <ul data-bind="foreach: Errors">
                                                                 <li data-bind="text: $data"></li>
                                                             </ul>
+                                                        </td>
+                                                    </tr>
+
+                                                    <tr data-bind="visible: $root.canCalculateDocumentToReplicateCount">
+                                                        <td>Documents to Replicate</td>
+                                                        <td>
+                                                            <span style="font-weight: bold" data-bind="text: $root.documentToReplicateText"></span>
+                                                            
+                                                            <span data-bind="visible: !$root.documentToReplicateText() && !$root.isLoadingDocumentToReplicateCount()">
+                                                                <a href="#" data-bind="click: $root.getDocumentsToReplicateCount.bind($root)">Calculate</a>
+                                                            </span>
+                                                            
+                                                            <span data-bind="visible: $root.isLoadingDocumentToReplicateCount">
+                                                                <i class="fa fa-spinner fa-spin"></i>
+                                                            </span>
                                                         </td>
                                                     </tr>
                                                 </tbody>

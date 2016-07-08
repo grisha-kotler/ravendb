@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -96,6 +98,30 @@ namespace Raven.Database.Bundles.Replication.Controllers
             var topology = node.Flatten();
 
             return GetMessageWithObjectAsTask(topology);
+        }
+
+        [HttpPost]
+        [RavenRoute("admin/replication/docs-left-to-replicate")]
+        [RavenRoute("databases/{databaseName}/admin/replication/docs-left-to-replicate")]
+        public async Task<HttpResponseMessage> DocumentsLeftToReplicate()
+        {
+            var serverInfo = await ReadJsonObjectAsync<ServerInfo>().ConfigureAwait(false);
+            var documentsToReplicateCalculator = new DocumentsLeftToReplicate(Database);
+            var documentsToReplicate = documentsToReplicateCalculator.Calculate(serverInfo);
+
+            return await GetMessageWithObjectAsTask(documentsToReplicate).ConfigureAwait(false);
+        }
+
+        [HttpPost]
+        [RavenRoute("admin/replication/replicated-docs-by-entity-names")]
+        [RavenRoute("databases/{databaseName}/admin/replication/replicated-docs-by-entity-names")]
+        public async Task<HttpResponseMessage> ReplicatedDocumentsByEntityNames()
+        {
+            var query = await ReadJsonObjectAsync<string>().ConfigureAwait(false);
+            var documentsToReplicateCalculator = new DocumentsLeftToReplicate(Database);
+            var documentsToReplicate = documentsToReplicateCalculator.GetDocumentCountForEntityNames(query);
+
+            return await GetMessageWithObjectAsTask(documentsToReplicate).ConfigureAwait(false);
         }
 
         private ReplicationInfoStatus[] CheckDestinations(ReplicationDocument replicationDocument)
