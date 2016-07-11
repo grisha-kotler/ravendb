@@ -723,7 +723,6 @@ class appUrl {
             column: customColumns
         }
 
-
         return appUrl.forResourceQuery(db) + "/streams/query/Raven/DocumentsByEntityName" + appUrl.urlEncodeArgs(args);
     }
 

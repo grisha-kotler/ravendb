@@ -339,49 +339,55 @@ namespace Raven.Database.Storage.Esent.StorageActions
                 lastProcessedDocument(lastDocEtag);
         }
 
-        public long GetDocumentsCountAfterEtag(
-            Etag etag, CancellationToken cancellationToken,
-            Reference<bool> earlyExit, int maxTake, HashSet<string> entityNames = null)
+        public IEnumerable<string> GetDocumentIdsAfterEtag(Etag etag, int maxTake,
+            Func<string, RavenJObject, bool> filterDocument, Reference<bool> earlyExit,
+            CancellationToken cancellationToken, HashSet<string> entityNames = null)
         {
             earlyExit.Value = false;
 
             Api.JetSetCurrentIndex(session, Documents, "by_etag");
             Api.MakeKey(session, Documents, etag.TransformToValueForEsentSorting(), MakeKeyGrbit.NewKey);
             if (Api.TrySeek(session, Documents, SeekGrbit.SeekGT) == false)
-                return 0;
+                yield break;
 
             long fetchedDocumentCount = 0;
-            long fetchedEtlDocumentCount = 0;
 
             do
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                fetchedDocumentCount++;
 
+                if (++fetchedDocumentCount >= maxTake)
+                {
+                    earlyExit.Value = true;
+                    break;
+                }
+
+                var key = Api.RetrieveColumnAsString(session, Documents, tableColumnsCache.DocumentsColumns["key"], Encoding.Unicode);
+                var metadataBuffer = Api.RetrieveColumn(session, Documents, tableColumnsCache.DocumentsColumns["metadata"]);
+                var metadata = metadataBuffer.ToJObject();
+
+                if (filterDocument(key, metadata) == false)
+                    continue;
+
+                var returnDocumentKey = entityNames == null;
                 if (entityNames != null)
                 {
-                    var metadataBuffer = Api.RetrieveColumn(session, Documents, tableColumnsCache.DocumentsColumns["metadata"]);
-                    var metadata = metadataBuffer.ToJObject();
                     var entityName = metadata.Value<string>("Raven-Entity-Name");
                     if (entityName != null && entityNames.Contains(entityName))
                     {
-                        fetchedEtlDocumentCount++;
+                        returnDocumentKey = true;
                     }
                 }
 
-                if (fetchedDocumentCount < maxTake)
+                if (returnDocumentKey == false)
                     continue;
 
-                earlyExit.Value = true;
-                break;
+                yield return key;
 
             } while (Api.TryMoveNext(session, Documents));
-
-            return entityNames == null ? fetchedDocumentCount : fetchedEtlDocumentCount;
         }
 
-        public IEnumerable<JsonDocument> GetDocumentsAfter(Etag etag, int take, CancellationToken cancellationToken, long? maxSize = null, Etag untilEtag = null, TimeSpan? timeout = null, Action<Etag> lastProcessedOnFailure = null,
-            Reference<bool> earlyExit = null)
+        public IEnumerable<JsonDocument> GetDocumentsAfter(Etag etag, int take, CancellationToken cancellationToken, long? maxSize = null, Etag untilEtag = null, TimeSpan? timeout = null, Action<Etag> lastProcessedOnFailure = null, Reference<bool> earlyExit = null)
         {
             return GetDocumentsAfterWithIdStartingWith(etag, null, take, cancellationToken, maxSize, untilEtag, timeout, lastProcessedOnFailure, earlyExit);
         }

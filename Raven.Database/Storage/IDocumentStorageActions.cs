@@ -6,8 +6,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
-using Jint.Runtime.References;
 using Raven.Abstractions.Data;
 using Raven.Imports.Newtonsoft.Json;
 using Raven.Json.Linq;
@@ -35,8 +33,9 @@ namespace Raven.Database.Storage
             Reference<bool> earlyExit = null);
         IEnumerable<JsonDocument> GetDocumentsWithIdStartingWith(string idPrefix, int start, int take, string skipAfter);
         Etag GetEtagAfterSkip(Etag etag, int skip, CancellationToken cancellationToken, out int skipped);
-        long GetDocumentsCountAfterEtag(Etag etag, CancellationToken cancellationToken, 
-            Reference<bool> earlyExit, int maxTake, HashSet<string> entityNames = null);
+        IEnumerable<string> GetDocumentIdsAfterEtag(Etag etag, int maxTake,
+            Func<string, RavenJObject, bool> filterDocument, Reference<bool> earlyExit,
+            CancellationToken cancellationToken, HashSet<string> entityNames = null);
 
         IEnumerable<JsonDocument> GetDocuments(int start);
 

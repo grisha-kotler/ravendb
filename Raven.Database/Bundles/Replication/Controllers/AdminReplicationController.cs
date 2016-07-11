@@ -1,14 +1,20 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web.Http;
 
 using Raven.Abstractions.Connection;
 using Raven.Abstractions.Data;
+using Raven.Abstractions.Extensions;
 using Raven.Abstractions.Replication;
+using Raven.Abstractions.Streaming;
 using Raven.Abstractions.Util;
 using Raven.Database.Bundles.Replication.Impl;
 using Raven.Database.Server.Controllers;
@@ -119,9 +125,77 @@ namespace Raven.Database.Bundles.Replication.Controllers
         {
             var query = await ReadJsonObjectAsync<string>().ConfigureAwait(false);
             var documentsToReplicateCalculator = new DocumentsLeftToReplicate(Database);
-            var documentsToReplicate = documentsToReplicateCalculator.GetDocumentCountForEntityNames(query);
+            var documentsToReplicateCount = documentsToReplicateCalculator.GetDocumentCountForEntityNames(query);
 
-            return await GetMessageWithObjectAsTask(documentsToReplicate).ConfigureAwait(false);
+            return await GetMessageWithObjectAsTask(documentsToReplicateCount).ConfigureAwait(false);
+        }
+
+        [HttpPost]
+        [RavenRoute("admin/replication/export-docs-left-to-replicate")]
+        [RavenRoute("databases/{databaseName}/admin/replication/export-docs-left-to-replicate")]
+        public async Task<HttpResponseMessage> ExportDocumentsLeftToReplicate()
+        {
+            var serverInfo = await ReadJsonObjectAsync<ServerInfo>().ConfigureAwait(false);
+            var documentsToReplicateCalculator = new DocumentsLeftToReplicate(Database);
+
+            if (serverInfo.SourceId != documentsToReplicateCalculator.DatabaseId)
+            {
+                var error = GetEmptyMessage(HttpStatusCode.InternalServerError);
+                error.Content.Headers.Add("Raven-Error", "Cannot export documents to replicate from a server other than this one!");
+                return await new CompletedTask<HttpResponseMessage>(error).Task.ConfigureAwait(false);
+            }
+
+            var result = GetEmptyMessage();
+
+            // create PushStreamContent object that will be called when the output stream will be ready.
+            result.Content = new PushStreamContent((outputStream, content, arg3) =>
+            {
+                try
+                {
+                    using (var writer = new ExcelOutputWriter(outputStream))
+                    {
+                        writer.WriteHeader();
+                        writer.Write("document-ids-left-to-replicate");
+
+                        try
+                        {
+                            var count = 0;
+                            Action<string> action = (documentId) =>
+                            {
+                                writer.Write(documentId);
+
+                                if (++count % 1000 == 0)
+                                    outputStream.Flush();
+                            };
+
+                            documentsToReplicateCalculator.ExtractDocumentIds(serverInfo, action);
+                        }
+                        catch (Exception e)
+                        {
+                            writer.WriteError(e);
+                        }
+                    }
+                }
+                finally
+                {
+                    outputStream.Close();
+                }
+            });
+
+            var fileName = $"Documents to replicate from '{serverInfo.SourceUrl}' to '{serverInfo.DestinationUrl}', " +
+                           $"{DateTime.Now.ToString("yyyy-MM-dd HH-mm", CultureInfo.InvariantCulture)}";
+
+            foreach (char c in Path.GetInvalidFileNameChars())
+            {
+                fileName = fileName.Replace(c, '_');
+            }
+
+            result.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment")
+            {
+                FileName = fileName + ".csv"
+            };
+
+            return await new CompletedTask<HttpResponseMessage>(result).Task.ConfigureAwait(false);
         }
 
         private ReplicationInfoStatus[] CheckDestinations(ReplicationDocument replicationDocument)

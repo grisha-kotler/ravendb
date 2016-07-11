@@ -19,45 +19,32 @@ namespace Raven.Database.Bundles.Replication.Impl
     {
         private readonly DocumentDatabase database;
 
-        private readonly string databaseId;
+        private readonly ReplicationTask replicationTask;
 
         private readonly HttpRavenRequestFactory requestFactory;
         
-        private const int MaxDocumentsToCheck = 1000;
+        private const int MaxDocumentsToCheck = 25000;
+
+        public string DatabaseId { get; }
 
         public DocumentsLeftToReplicate(DocumentDatabase database)
         {
             this.database = database;
-            this.databaseId = database.TransactionalStorage.Id.ToString();
+            DatabaseId = database.TransactionalStorage.Id.ToString();
             requestFactory = new HttpRavenRequestFactory();
-        }
 
-        public DocumentCount Calculate(ServerInfo serverInfo)
-        {
-            var replicationTask = database.StartupTasks.OfType<ReplicationTask>().FirstOrDefault();
+            replicationTask = database.StartupTasks.OfType<ReplicationTask>().FirstOrDefault();
             if (replicationTask == null)
             {
                 throw new InvalidOperationException("Couldn't locate ReplicationTask");
             }
+        }
 
-            ConfigurationDocument<ReplicationDocument<ReplicationDestination.ReplicationDestinationWithConfigurationOrigin>> configurationDocument = null;
-            try
-            {
-                configurationDocument = database.ConfigurationRetriever.GetConfigurationDocument<ReplicationDocument<ReplicationDestination.ReplicationDestinationWithConfigurationOrigin>>(Constants.RavenReplicationDestinations);
-            }
-            catch (Exception e)
-            {
-                throw new InvalidOperationException("Couldn't find Raven/Replication/Destinations document", e);
-            }
+        public DocumentCount Calculate(ServerInfo serverInfo)
+        {
+            var replicationDocument = GetReplicationDocument();
 
-            if (configurationDocument == null)
-            {
-                throw new InvalidOperationException("Couldn't find Raven/Replication/Destinations document");
-            }
-
-            var replicationDocument = configurationDocument.MergedDocument;
-
-            if (serverInfo.SourceId != databaseId)
+            if (serverInfo.SourceId != DatabaseId)
             {
                 return GetDocumentsLeftCountFromAnotherSourceServer(replicationDocument, serverInfo);
             }
@@ -75,11 +62,32 @@ namespace Raven.Database.Bundles.Replication.Impl
             var replicationStrategy = ReplicationTask.GetConnectionOptions(replicationDestination, database);
             if (replicationStrategy.SpecifiedCollections == null || replicationStrategy.SpecifiedCollections.Count == 0)
             {
-                return GetDocumentsLeftCount(replicationTask, replicationStrategy, serverInfo.DestinationUrl, serverInfo.DatabaseName);
+                return GetDocumentsLeftCount(replicationStrategy, serverInfo.DestinationUrl, serverInfo.DatabaseName);
             }
 
             var entityNames = replicationStrategy.SpecifiedCollections.Keys.ToHashSet();
-            return GetDocumentsLeftCountForEtl(entityNames, replicationStrategy, replicationTask, serverInfo.DestinationUrl, serverInfo.DatabaseName);
+            return GetDocumentsLeftCountForEtl(entityNames, replicationStrategy, serverInfo.DestinationUrl, serverInfo.DatabaseName);
+        }
+
+        private ReplicationDocument<ReplicationDestination.ReplicationDestinationWithConfigurationOrigin> GetReplicationDocument()
+        {
+            ConfigurationDocument<ReplicationDocument<ReplicationDestination.ReplicationDestinationWithConfigurationOrigin>> configurationDocument = null;
+            try
+            {
+                configurationDocument = database.ConfigurationRetriever.GetConfigurationDocument<ReplicationDocument<ReplicationDestination.ReplicationDestinationWithConfigurationOrigin>>(Constants.RavenReplicationDestinations);
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException("Couldn't find Raven/Replication/Destinations document", e);
+            }
+
+            if (configurationDocument == null)
+            {
+                throw new InvalidOperationException("Couldn't find Raven/Replication/Destinations document");
+            }
+
+            var replicationDocument = configurationDocument.MergedDocument;
+            return replicationDocument;
         }
 
         private string FetchTargetServerUrl(ReplicationDestination replicationDestination)
@@ -119,11 +127,12 @@ namespace Raven.Database.Bundles.Replication.Impl
                 return DocumentsLeftCountFromAnotherSourceServer(serverInfo, replicationDestination);
             }
 
-            if (serverInfo.SourcesToIgnore.Contains(databaseId) == false)
+            if (serverInfo.SourcesToIgnore.Contains(DatabaseId) == false)
             {
-                serverInfo.SourcesToIgnore.Add(databaseId);
+                serverInfo.SourcesToIgnore.Add(DatabaseId);
                 //couldn't find replication destination for this url,
                 //going to try to do it through other destinations
+
                 foreach (var destination in replicationDocument.Destinations)
                 {
                     try
@@ -152,8 +161,8 @@ namespace Raven.Database.Bundles.Replication.Impl
             return documentsLeftCount;
         }
 
-        private DocumentCount GetDocumentsLeftCount(ReplicationTask replicationTask, 
-            ReplicationStrategy replicationStrategy, string destinationUrl, string databaseName)
+        private DocumentCount GetDocumentsLeftCount(ReplicationStrategy replicationStrategy, 
+            string destinationUrl, string databaseName)
         {
             //first check the stats
             var localDocumentCount = database.Statistics.CountOfDocuments;
@@ -182,60 +191,35 @@ namespace Raven.Database.Bundles.Replication.Impl
             database.TransactionalStorage.Batch(actions =>
             {
                 //get document count since last replicated etag
-                count = actions.Documents.GetDocumentsCountAfterEtag(
-                    sourcesDocument.LastDocumentEtag, 
-                    database.WorkContext.CancellationToken,
-                    earlyExit, MaxDocumentsToCheck);
+                count = actions.Documents.GetDocumentIdsAfterEtag(
+                    sourcesDocument.LastDocumentEtag, MaxDocumentsToCheck,
+                    WillDocumentBeReplicated(replicationStrategy, sourcesDocument.ServerInstanceId.ToString()), earlyExit,
+                    database.WorkContext.CancellationToken).Count();
             });
-
-            //there might be some system documents or documents from other destinations that shouldn't be replicated
-            if (count < ReplicationTask.SystemDocsLimitForRemoteEtagUpdate ||
-                count < ReplicationTask.DestinationDocsLimitForRemoteEtagUpdate)
-            {
-                database.TransactionalStorage.Batch(actions =>
-                {
-                    var take = Math.Max(ReplicationTask.SystemDocsLimitForRemoteEtagUpdate,
-                        ReplicationTask.DestinationDocsLimitForRemoteEtagUpdate);
-                    var docs = actions.Documents.GetDocumentsAfter(
-                        sourcesDocument.LastDocumentEtag,
-                        take, database.WorkContext.CancellationToken, earlyExit: earlyExit);
-
-                    var newCount = docs.Count(doc => replicationStrategy.IsSystemDocumentId(doc.Key) == false &&
-                                                     replicationStrategy.OriginatedAtOtherDestinations(databaseId, doc.Metadata) == false);
-
-                    count = newCount;
-                });
-            }
 
             return new DocumentCount
             {
-                Count = count,
+                Count = earlyExit.Value == false ? count : Math.Max(count, difference),
                 Type = earlyExit.Value == false ? CountType.Accurate : CountType.Approximate,
                 IsEtl = false
             };
         }
 
-        private DocumentCount GetDocumentsLeftCountForEtl(
-            HashSet<string> entityNames, ReplicationStrategy replicationStrategy, 
-            ReplicationTask replicationTask, string destinationUrl, string databaseName)
+        private static Func<string, RavenJObject, bool> WillDocumentBeReplicated(
+            ReplicationStrategy replicationStrategy, string destinationId)
         {
-            var query = QueryBuilder.GetQueryForAllMatchingDocumentsForIndex(database, entityNames);
+            return (key, metadata) =>
+            {
+                string _;
+                return replicationStrategy.FilterDocuments(destinationId, key, metadata, out _);
+            };
+        }
 
-            //get count of documents with specified collections on this server
-            var localDocumentCount = GetDocumentCountForEntityNames(query);
-
-            //get count of documents with specified collections on destination server
-            var url = $"{replicationStrategy.ConnectionStringOptions.Url}/admin/replication/replicated-docs-by-entity-names";
-            var request = requestFactory.Create(url, HttpMethods.Post, replicationStrategy.ConnectionStringOptions);
-            request.Write(query);
-            var remoteDocumentCount = request.ExecuteRequest<long>();
-
-            var countFromIndex = localDocumentCount - remoteDocumentCount;
-            //Raven/DocumentsByEntityName might not be up to date on both servers
-            //we are going to try to get a more accurate number
-
-            var lastReplicatedEtag = replicationTask.GetLastReplicatedEtagFrom(replicationStrategy);
-            if (lastReplicatedEtag == null)
+        private DocumentCount GetDocumentsLeftCountForEtl(HashSet<string> entityNames, 
+            ReplicationStrategy replicationStrategy, string destinationUrl, string databaseName)
+        {
+            var sourcesDocument = replicationTask.GetLastReplicatedEtagFrom(replicationStrategy);
+            if (sourcesDocument == null)
             {
                 throw new InvalidOperationException($"Couldn't get last replicated etag for destination url: {destinationUrl} and database: {databaseName}");
             }
@@ -245,17 +229,37 @@ namespace Raven.Database.Bundles.Replication.Impl
             database.TransactionalStorage.Batch(actions =>
             {
                 //get document count since last replicated etag
-                storageCount = actions.Documents.GetDocumentsCountAfterEtag(
-                    lastReplicatedEtag.LastDocumentEtag,
-                    database.WorkContext.CancellationToken,
-                    earlyExit, MaxDocumentsToCheck, entityNames);
+                storageCount = actions.Documents.GetDocumentIdsAfterEtag(
+                    sourcesDocument.LastDocumentEtag, MaxDocumentsToCheck,
+                    WillDocumentBeReplicated(replicationStrategy, sourcesDocument.ServerInstanceId.ToString()), 
+                    earlyExit, database.WorkContext.CancellationToken, entityNames: entityNames).Count();
             });
+
+            long diffFromIndex = 0;
+            if (earlyExit.Value)
+            {
+                //we couldn't get an accurate document left count from the storage,
+                //we'll try to get an approximation from the index
+
+                var query = QueryBuilder.GetQueryForAllMatchingDocumentsForIndex(database, entityNames);
+
+                //get count of documents with specified collections on this server
+                var localDocumentCount = GetDocumentCountForEntityNames(query);
+
+                //get count of documents with specified collections on destination server
+                var url = $"{replicationStrategy.ConnectionStringOptions.Url}/admin/replication/replicated-docs-by-entity-names";
+                var request = requestFactory.Create(url, HttpMethods.Post, replicationStrategy.ConnectionStringOptions);
+                request.Write(query);
+                var remoteDocumentCount = request.ExecuteRequest<long>();
+
+                diffFromIndex = localDocumentCount - remoteDocumentCount;
+            }
 
             return new DocumentCount
             {
-                Count = earlyExit.Value == false ? storageCount : Math.Max(storageCount, countFromIndex),
+                Count = earlyExit.Value == false ? storageCount : Math.Max(storageCount, diffFromIndex),
                 Type = earlyExit.Value == false ? CountType.Accurate : CountType.Approximate,
-                IsEtl = true,
+                IsEtl = true
             };
         }
 
@@ -282,6 +286,51 @@ namespace Raven.Database.Bundles.Replication.Impl
             });
 
             return localDocumentCount;
+        }
+
+        public void ExtractDocumentIds(ServerInfo serverInfo, Action<string> action)
+        {
+            var replicationDocument = GetReplicationDocument();
+
+            var replicationDestination = replicationDocument
+                .Destinations
+                .FirstOrDefault(x => FetchTargetServerUrl(x).Equals(serverInfo.DestinationUrl, StringComparison.CurrentCultureIgnoreCase) &&
+                            x.Database.Equals(serverInfo.DatabaseName, StringComparison.CurrentCultureIgnoreCase));
+
+            if (replicationDestination == null)
+            {
+                throw new InvalidOperationException($"Couldn't find replication destination for url: {serverInfo.DestinationUrl} and database: {serverInfo.DatabaseName}");
+            }
+
+            var replicationStrategy = ReplicationTask.GetConnectionOptions(replicationDestination, database);
+            HashSet<string> entityNames = null;
+            if (replicationStrategy.SpecifiedCollections != null && replicationStrategy.SpecifiedCollections.Count > 0)
+            {
+                entityNames = replicationStrategy.SpecifiedCollections.Keys.ToHashSet();
+            }
+
+            var sourcesDocument = replicationTask.GetLastReplicatedEtagFrom(replicationStrategy);
+            if (sourcesDocument == null)
+            {
+                throw new InvalidOperationException($"Couldn't get last replicated etag for " +
+                                                    $"destination url: {serverInfo.DestinationUrl} and database: {serverInfo.DatabaseName}");
+            }
+
+            database.TransactionalStorage.Batch(actions =>
+            {
+                var earlyExit = new Reference<bool>();
+
+                //get document count since last replicated etag
+                var documentIds = actions.Documents.GetDocumentIdsAfterEtag(
+                    sourcesDocument.LastDocumentEtag, int.MaxValue,
+                    WillDocumentBeReplicated(replicationStrategy, sourcesDocument.ServerInstanceId.ToString()), 
+                    earlyExit, database.WorkContext.CancellationToken, entityNames: entityNames);
+
+                foreach (var documentId in documentIds)
+                {
+                    action(documentId);
+                }
+            });
         }
     }
 

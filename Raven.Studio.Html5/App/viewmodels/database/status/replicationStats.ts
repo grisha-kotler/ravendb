@@ -29,10 +29,11 @@ class replicationStats extends viewModelBase {
 
     topology = ko.observable<replicationTopologyDto>(null);
     currentLink = ko.observable<replicationTopologyConnectionDto>(null);
-    documentToReplicateText = ko.observable<string>("");
+    documentToReplicateText = ko.observable<string>(null);
     isLoadingDocumentToReplicateCount = ko.observable<boolean>(false);
     databaseId = ko.observable<string>();
-    canCalculateDocumentToReplicateCount: KnockoutComputed<boolean>;
+    canCalculateDocumentsToReplicateCount: KnockoutComputed<boolean>;
+    canExportDocumentsToReplicateCount: KnockoutComputed<boolean>;
 
     hasReplicationEnabled = ko.observable(false); 
 
@@ -80,7 +81,7 @@ class replicationStats extends viewModelBase {
 
         this.updateCurrentNowTime();
 
-        this.canCalculateDocumentToReplicateCount = ko.computed(() => {
+        this.canCalculateDocumentsToReplicateCount = ko.computed(() => {
             var currentLink = this.currentLink();
             if (!currentLink) {
                 return false;
@@ -107,6 +108,24 @@ class replicationStats extends viewModelBase {
             var destinations = this.getAllReachableDestinationsFrom(sourceServerUrl, topology.Connections);
 
             return destinations.contains(currentLink.Source);
+        });
+
+        this.canExportDocumentsToReplicateCount = ko.computed(() => {
+            var currentLink = this.currentLink();
+            if (!currentLink) {
+                return false;
+            }
+
+            var topology = this.topology();
+            if (!topology) {
+                return false;
+            }
+
+            var currentServer = topology
+                .Connections
+                .first((x: replicationTopologyConnectionDto) => x.SendServerId === this.databaseId());
+
+            return currentServer.Source === currentLink.Source;
         });
     }
 
@@ -195,11 +214,16 @@ class replicationStats extends viewModelBase {
         getDocsToReplicateCount
             .done((documentCount: documentCountDto) => {
                 var message = "";
-                if (documentCount.Type === "Approximate") {
-                    message += "Approximately more than ";
+                var isApproximate = documentCount.Type === "Approximate";
+                if (isApproximate) {
+                    message += "Approximately ";
                 }
 
                 message += documentCount.Count.toLocaleString();
+
+                if (isApproximate) {
+                    message += ">=";
+                }
 
                 if (documentCount.IsEtl) {
                     message += " (ETL)";
@@ -209,6 +233,38 @@ class replicationStats extends viewModelBase {
             })
             .fail(() => this.documentToReplicateText("Couldn't calculate document count!"))
             .always(() => this.isLoadingDocumentToReplicateCount(false));
+    }
+
+    export() {
+        var confirmation = this.confirmationMessage("Export", "Are you sure that you want to export documents to replicate ids?");
+        confirmation.done(() => {
+            var url = "/admin/replication/export-docs-left-to-replicate";
+            var current = this.currentLink();
+            if (current == null) {
+                return;
+            }
+
+            this.isLoadingDocumentToReplicateCount(true);
+            var destinationSplitted = current.Destination.split("/databases/");
+            var databaseName = destinationSplitted.last();
+            var destinationUrl = destinationSplitted.first() + "/";
+            var sourceUrl = current.Source.split("/databases/").first() + "/";
+
+            var sourceId = current.SendServerId;
+            if (sourceId === "00000000-0000-0000-0000-000000000000") {
+                sourceId = current.StoredServerId;
+            }
+
+            var requestData = {
+                SourceUrl: sourceUrl,
+                DestinationUrl: destinationUrl,
+                DatabaseName: databaseName,
+                SourceId: sourceId
+            };
+
+            var db = this.activeDatabase();
+            this.downloader.downloadByPost(db, url, requestData, this.isLoadingDocumentToReplicateCount);
+        });
     }
 
     resize() {
@@ -230,11 +286,11 @@ class replicationStats extends viewModelBase {
     processResults(results: replicationStatsDocumentDto) {
         if (results) {
             results.Stats.forEach(s => {
-                s['LastReplicatedLastModifiedHumanized'] = this.createHumanReadableTime(s.LastReplicatedLastModified);
-                s['LastFailureTimestampHumanized'] = this.createHumanReadableTime(s.LastFailureTimestamp);
-                s['LastHeartbeatReceivedHumanized'] = this.createHumanReadableTime(s.LastHeartbeatReceived);
-                s['LastSuccessTimestampHumanized'] = this.createHumanReadableTime(s.LastSuccessTimestamp);
-                s['isHotFailure'] = this.isFailEarlierThanSuccess(s.LastFailureTimestamp, s.LastSuccessTimestamp);
+                s["LastReplicatedLastModifiedHumanized"] = this.createHumanReadableTime(s.LastReplicatedLastModified);
+                s["LastFailureTimestampHumanized"] = this.createHumanReadableTime(s.LastFailureTimestamp);
+                s["LastHeartbeatReceivedHumanized"] = this.createHumanReadableTime(s.LastHeartbeatReceived);
+                s["LastSuccessTimestampHumanized"] = this.createHumanReadableTime(s.LastSuccessTimestamp);
+                s["isHotFailure"] = this.isFailEarlierThanSuccess(s.LastFailureTimestamp, s.LastSuccessTimestamp);
             });
         }
 
@@ -379,7 +435,7 @@ class replicationStats extends viewModelBase {
                 d3.selectAll(".selected").classed("selected", false);
                 d3.select(this).classed('selected', currentSelection != this);
                 self.currentLink(currentSelection != this ? d : null);
-                self.documentToReplicateText("");
+                self.documentToReplicateText(null);
             });
     }
 
@@ -407,7 +463,6 @@ class replicationStats extends viewModelBase {
     saveAsJson() {
         fileDownloader.downloadAsJson(this.topology(), "topology.json");
     }
-
 
     fetchJsonData() {
         return new getReplicationPerfStatsCommand(this.activeDatabase()).execute();

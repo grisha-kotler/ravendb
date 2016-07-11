@@ -561,7 +561,7 @@ namespace Raven.Database.Indexing
             return sb.ToString();
         }
 
-        public static void GetQueryForAllMatchingDocumentsForIndex(
+        private static void GetQueryForAllMatchingDocumentsForIndex(
             DocumentDatabase database, HashSet<string> entityNames, StringBuilder sb)
         {
             var terms = new TermsQueryRunner(database)
