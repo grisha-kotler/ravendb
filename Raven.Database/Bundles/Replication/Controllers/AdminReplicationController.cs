@@ -1,18 +1,14 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text;
 using System.Threading.Tasks;
 using System.Web.Http;
 
 using Raven.Abstractions.Connection;
 using Raven.Abstractions.Data;
-using Raven.Abstractions.Extensions;
 using Raven.Abstractions.Replication;
 using Raven.Abstractions.Streaming;
 using Raven.Abstractions.Util;
@@ -28,13 +24,6 @@ namespace Raven.Database.Bundles.Replication.Controllers
         public override string BundleName
         {
             get { return "replication"; }
-        }
-
-        private readonly HttpRavenRequestFactory requestFactory;
-
-        public AdminReplicationController()
-        {
-            requestFactory = new HttpRavenRequestFactory();
         }
 
         [HttpPost]
@@ -135,65 +124,71 @@ namespace Raven.Database.Bundles.Replication.Controllers
         [RavenRoute("databases/{databaseName}/admin/replication/export-docs-left-to-replicate")]
         public async Task<HttpResponseMessage> ExportDocumentsLeftToReplicate()
         {
-            var serverInfo = await ReadJsonObjectAsync<ServerInfo>().ConfigureAwait(false);
-            var documentsToReplicateCalculator = new DocumentsLeftToReplicate(Database);
-
-            if (serverInfo.SourceId != documentsToReplicateCalculator.DatabaseId)
-            {
-                var error = GetEmptyMessage(HttpStatusCode.InternalServerError);
-                error.Content.Headers.Add("Raven-Error", "Cannot export documents to replicate from a server other than this one!");
-                return await new CompletedTask<HttpResponseMessage>(error).Task.ConfigureAwait(false);
-            }
-
             var result = GetEmptyMessage();
 
-            // create PushStreamContent object that will be called when the output stream will be ready.
-            result.Content = new PushStreamContent((outputStream, content, arg3) =>
+            try
             {
-                try
+                var serverInfo = await ReadJsonObjectAsync<ServerInfo>().ConfigureAwait(false);
+                var documentsToReplicateCalculator = new DocumentsLeftToReplicate(Database);
+
+                if (serverInfo.SourceId != documentsToReplicateCalculator.DatabaseId)
                 {
-                    using (var writer = new ExcelOutputWriter(outputStream))
+                    throw new InvalidOperationException("Cannot export documents to replicate from a server other than this one!");
+                }
+
+                // create PushStreamContent object that will be called when the output stream will be ready.
+                result.Content = new PushStreamContent((outputStream, content, arg3) =>
+                {
+                    try
                     {
-                        writer.WriteHeader();
-                        writer.Write("document-ids-left-to-replicate");
-
-                        try
+                        using (var writer = new ExcelOutputWriter(outputStream))
                         {
-                            var count = 0;
-                            Action<string> action = (documentId) =>
+                            writer.WriteHeader();
+                            writer.Write("document-ids-left-to-replicate");
+
+                            try
                             {
-                                writer.Write(documentId);
+                                var count = 0;
+                                Action<string> action = (documentId) =>
+                                {
+                                    writer.Write(documentId);
 
-                                if (++count % 1000 == 0)
-                                    outputStream.Flush();
-                            };
+                                    if (++count%1000 == 0)
+                                        outputStream.Flush();
+                                };
 
-                            documentsToReplicateCalculator.ExtractDocumentIds(serverInfo, action);
-                        }
-                        catch (Exception e)
-                        {
-                            writer.WriteError(e);
+                                documentsToReplicateCalculator.ExtractDocumentIds(serverInfo, action);
+                            }
+                            catch (Exception e)
+                            {
+                                writer.WriteError(e);
+                            }
                         }
                     }
-                }
-                finally
+                    finally
+                    {
+                        outputStream.Close();
+                    }
+                });
+
+                var fileName = $"Documents to replicate from '{serverInfo.SourceUrl}' to '{serverInfo.DestinationUrl}', " +
+                               $"{DateTime.Now.ToString("yyyy-MM-dd HH-mm", CultureInfo.InvariantCulture)}";
+
+                foreach (char c in Path.GetInvalidFileNameChars())
                 {
-                    outputStream.Close();
+                    fileName = fileName.Replace(c, '_');
                 }
-            });
 
-            var fileName = $"Documents to replicate from '{serverInfo.SourceUrl}' to '{serverInfo.DestinationUrl}', " +
-                           $"{DateTime.Now.ToString("yyyy-MM-dd HH-mm", CultureInfo.InvariantCulture)}";
-
-            foreach (char c in Path.GetInvalidFileNameChars())
-            {
-                fileName = fileName.Replace(c, '_');
+                result.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment")
+                {
+                    FileName = fileName + ".csv"
+                };
             }
-
-            result.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment")
+            catch (Exception e)
             {
-                FileName = fileName + ".csv"
-            };
+                result.StatusCode = HttpStatusCode.InternalServerError;
+                result.Content = new StringContent(e.Message);
+            }
 
             return await new CompletedTask<HttpResponseMessage>(result).Task.ConfigureAwait(false);
         }
@@ -231,6 +226,8 @@ namespace Raven.Database.Bundles.Replication.Controllers
                                                                                      replicationDestination.Password,
                                                                                      replicationDestination.Domain ?? string.Empty);
                 }
+
+                var requestFactory = new HttpRavenRequestFactory();
                 var request = requestFactory.Create(url + "/replication/info", HttpMethods.Post, ravenConnectionStringOptions);
                 try
                 {

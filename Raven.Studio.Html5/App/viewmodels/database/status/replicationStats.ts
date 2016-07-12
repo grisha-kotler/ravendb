@@ -87,6 +87,10 @@ class replicationStats extends viewModelBase {
                 return false;
             }
 
+            if (currentLink.SourceToDestinationState === "Offline") {
+                return false;
+            }
+
             var topology = this.topology();
             if (!topology) {
                 return false;
@@ -94,7 +98,10 @@ class replicationStats extends viewModelBase {
 
             var currentServer = topology
                 .Connections
-                .first((x: replicationTopologyConnectionDto) => x.SendServerId === this.databaseId());
+                .first((x: replicationTopologyConnectionDto) => {
+                    var serverId = this.getServerId(x.SendServerId, x.StoredServerId);
+                    return serverId === this.databaseId();
+                });
 
             if (!currentServer) {
                 return false;
@@ -107,12 +114,16 @@ class replicationStats extends viewModelBase {
             var sourceServerUrl = currentServer.Source;
             var destinations = this.getAllReachableDestinationsFrom(sourceServerUrl, topology.Connections);
 
-            return destinations.contains(currentLink.Source);
+            return destinations.contains(currentLink.Destination);
         });
 
         this.canExportDocumentsToReplicateCount = ko.computed(() => {
             var currentLink = this.currentLink();
             if (!currentLink) {
+                return false;
+            }
+
+            if (currentLink.SourceToDestinationState === "Offline") {
                 return false;
             }
 
@@ -123,7 +134,14 @@ class replicationStats extends viewModelBase {
 
             var currentServer = topology
                 .Connections
-                .first((x: replicationTopologyConnectionDto) => x.SendServerId === this.databaseId());
+                .first((x: replicationTopologyConnectionDto) => {
+                    var serverId = this.getServerId(x.SendServerId, x.StoredServerId);
+                    return serverId === this.databaseId();
+                });
+
+            if (!currentServer) {
+                return false;
+            }
 
             return currentServer.Source === currentLink.Source;
         });
@@ -190,25 +208,25 @@ class replicationStats extends viewModelBase {
     }
 
     getDocumentsToReplicateCount() {
-        var current = this.currentLink();
-        if (current == null) {
+        var currentLink = this.currentLink();
+        if (currentLink == null) {
             return;
         }
-        
-        var destinationSplitted = current.Destination.split("/databases/");
+
+        if (currentLink.SourceToDestinationState === "Offline") {
+            return;
+        }
+
+        var destinationSplitted = currentLink.Destination.split("/databases/");
         var databaseName = destinationSplitted.last();
         var destinationUrl = destinationSplitted.first() + "/";
-        var sourceUrl = current.Source.split("/databases/").first() + "/";
-
-        var sourceId = current.SendServerId;
-        if (sourceId === "00000000-0000-0000-0000-000000000000") {
-            sourceId = current.StoredServerId;
-        }
+        var sourceUrl = currentLink.Source.split("/databases/").first() + "/";
+        var sourceId = this.getServerId(currentLink.SendServerId, currentLink.StoredServerId);
 
         this.isLoadingDocumentToReplicateCount(true);
         var getDocsToReplicateCount =
-            new getDocumentsLeftToReplicate(sourceUrl, destinationUrl, databaseName,
-                    sourceId, this.activeDatabase())
+            new getDocumentsLeftToReplicate(sourceUrl, destinationUrl, 
+                    databaseName, sourceId, this.activeDatabase())
                 .execute();
 
         getDocsToReplicateCount
@@ -235,31 +253,39 @@ class replicationStats extends viewModelBase {
             .always(() => this.isLoadingDocumentToReplicateCount(false));
     }
 
+    getServerId(sendServerId: string, storedServerId: string) {
+        var serverId = sendServerId;
+        if (serverId === "00000000-0000-0000-0000-000000000000") {
+            serverId = storedServerId;
+        }
+
+        return serverId;
+    }
+
     export() {
         var confirmation = this.confirmationMessage("Export", "Are you sure that you want to export documents to replicate ids?");
         confirmation.done(() => {
             var url = "/admin/replication/export-docs-left-to-replicate";
-            var current = this.currentLink();
-            if (current == null) {
+            var currentLink = this.currentLink();
+            if (currentLink == null) {
+                return;
+            }
+
+            if (currentLink.SourceToDestinationState === "Offline") {
                 return;
             }
 
             this.isLoadingDocumentToReplicateCount(true);
-            var destinationSplitted = current.Destination.split("/databases/");
+            var destinationSplitted = currentLink.Destination.split("/databases/");
             var databaseName = destinationSplitted.last();
             var destinationUrl = destinationSplitted.first() + "/";
-            var sourceUrl = current.Source.split("/databases/").first() + "/";
-
-            var sourceId = current.SendServerId;
-            if (sourceId === "00000000-0000-0000-0000-000000000000") {
-                sourceId = current.StoredServerId;
-            }
+            var sourceUrl = currentLink.Source.split("/databases/").first() + "/";
 
             var requestData = {
                 SourceUrl: sourceUrl,
                 DestinationUrl: destinationUrl,
                 DatabaseName: databaseName,
-                SourceId: sourceId
+                SourceId: this.getServerId(currentLink.SendServerId, currentLink.StoredServerId)
             };
 
             var db = this.activeDatabase();
@@ -449,7 +475,10 @@ class replicationStats extends viewModelBase {
                 this.createReplicationTopology();
                 $("#replicationSetupCollapse").addClass("in"); // Force the panel to expand. Fixes a bug where the panel collapses when we fill it with content.
             })
-            .always(() => this.showLoadingIndicator(false)); 
+            .always(() => {
+                this.currentLink(null);
+                this.showLoadingIndicator(false);
+            }); 
     }
 
     saveAsPng() {

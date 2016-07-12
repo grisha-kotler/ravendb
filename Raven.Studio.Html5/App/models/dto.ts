@@ -1312,6 +1312,7 @@ interface replicationTopologyDto {
     Servers: string[];
     Connections: replicationTopologyConnectionDto[];
     SkippedResources: string[];
+    LocalDatabaseIds: string[];
 }
 
 interface synchronizationTopologyDto {

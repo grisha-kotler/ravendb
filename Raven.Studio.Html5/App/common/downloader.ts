@@ -21,13 +21,16 @@ class downloader {
             var htmlElement: HTMLElement = this.$downloadFrame[0];
 
             xhttp.onreadystatechange = () => {
+
                 if (xhttp.readyState !== 4) {
+                    if (xhttp.status === 500 && xhttp.readyState < 3) {
+                        xhttp.responseType = "text";
+                    }
                     return;
                 }
 
                 if (xhttp.status === 500) {
-                    var error = xhttp.getResponseHeader("Raven-Error");
-                    messagePublisher.reportError(xhttp.statusText, error);
+                    messagePublisher.reportError(xhttp.statusText, xhttp.responseText);
                 }
                 else if (xhttp.status === 200) {
                     var responseHeader = xhttp.getResponseHeader("Content-Disposition");
@@ -68,7 +71,10 @@ class downloader {
             xhttp.setRequestHeader("Content-Type", "application/json");
             xhttp.responseType = "blob";
             xhttp.send(JSON.stringify(requestData));
-        }).fail((qXHR, textStatus, errorThrown) => messagePublisher.reportError("Could not get single auth token for download.", errorThrown));
+        }).fail((qXHR, textStatus, errorThrown) => {
+            isDownloading(false);
+            messagePublisher.reportError("Could not get single auth token for download.", errorThrown);
+        });
     }
 
     reset() {

@@ -132,15 +132,14 @@
                 <div class="panel-collapse collapse" id="replicationSetupCollapse">
                     <div class="panel-body">
                         <div>
-                            <button data-bind="click: fetchTopology" class="btn btn-default">
-                                <i class="fa fa-sitemap"></i>
+                            <button data-bind="click: fetchTopology, disable: showLoadingIndicator" class="btn btn-default">
+                                <i class="fa fa-spinner fa-spin fa-fw" data-bind="visible: showLoadingIndicator"></i>
+                                <i class="fa fa-sitemap" data-bind="visible: !showLoadingIndicator()"></i>
                                 <span data-bind="text: !topology() ? 'Fetch topology' : 'Refetch topology'"></span>
                             </button>
                             <p class="help-block">
                                 <i class="fa fa-warning text-warning"></i> This operation might be time consuming.
                             </p>
-
-                            <div id="loadingIndicator" data-bind="visible: showLoadingIndicator" class="glyphicon" style="width: 30px; height: 30px;"><span class="fa fa-spinner fa-spin fa-2x"></span></div>
                         </div>
 
                         <div class="row" data-bind="with: topology">
@@ -163,6 +162,9 @@
                                                 <dd>Error in communication</dd>
                                             </dl>
                                         </div>
+
+                                        <br />
+                                        <i class="fa fa-info-circle text-info"></i> Use the mouse to pan by clicking on the background; you may also use the mousewheel to zoom.
                                     </div>
                                 </div>
                                 <div data-bind="with: $root.currentLink">
