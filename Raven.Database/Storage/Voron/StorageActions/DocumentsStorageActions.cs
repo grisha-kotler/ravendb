@@ -821,7 +821,7 @@ namespace Raven.Database.Storage.Voron.StorageActions
                     if (processedDocuments%64 == 0)
                     {
                         token.ThrowIfCancellationRequested();
-                        progress($"Scanned {processedDocuments} documents");
+                        progress($"Scanned {$"{processedDocuments:#,#;;0}"} documents");
                     }
 
                     
