@@ -5,6 +5,7 @@
 // -----------------------------------------------------------------------
 using System.Threading;
 using Raven.Abstractions.Data;
+using Raven.Abstractions.Indexing;
 using Raven.Json.Linq;
 using Raven.Tests.Common;
 using Xunit;
@@ -85,6 +86,51 @@ namespace Raven.Tests.Issues
                     }
                 });
             }
+        }
+
+        [Theory]
+        [PropertyData("Storages")]
+        public void not_setting_cache_for_precomputed_batch(string requestedStorage)
+        {
+            using (var store = NewRemoteDocumentStore(true, requestedStorage: requestedStorage))
+            {
+                Assert.Equal(0, GetCachedItemsCount(store));
+
+                store.DatabaseCommands.PutIndex("test", new IndexDefinition
+                {
+                    Map = @"
+                        from doc in docs.Items
+                        select new
+                        {
+                            Name = doc.Name,
+                        }"
+                });
+
+                using (var session = store.OpenSession())
+                {
+                    session.Store(new Item { Id = "items/1", Name = "Oren" });
+                    session.Store(new Item { Id = "items/2", Name = "Maxim" });
+                    session.Store(new Item { Id = "items/3", Name = "Grisha" });
+                    session.SaveChanges();
+                }
+
+                WaitForIndexing(store);
+
+                Assert.Equal(0, GetCachedItemsCount(store));
+
+                store.DatabaseCommands.ResetIndex("test");
+
+                WaitForIndexing(store);
+
+                Assert.Equal(0, GetCachedItemsCount(store));
+            }
+        }
+
+        public class Item
+        {
+            public string Id { get; set; }
+            public string Ref { get; set; }
+            public string Name { get; set; }
         }
     }
 }
