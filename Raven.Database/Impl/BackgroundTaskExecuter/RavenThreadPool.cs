@@ -402,8 +402,9 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
             else
                 batchesCountdown.Reset(numOfBatches);
 
+            var localTasks = new List<ThreadTask>();
             var exceptions = new List<Exception>();
-
+            
             for (var i = 0; i < src.Count; i += pageSize)
             {
                 var rangeStart = i;
@@ -454,6 +455,14 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
                     QueuedAt = now,
                     DoneEvent = batchesCountdown
                 };
+                localTasks.Add(threadTask);
+            }
+
+            // we must add the tasks to the global tasks after we added all the ranges
+            // to prevent the tasks from completing the range fast enough that it won't
+            // see the next range, see: http://issues.hibernatingrhinos.com/issue/RavenDB-4829
+            foreach (var threadTask in localTasks)
+            {
                 _tasks.Add(threadTask, _ct);
             }
 
@@ -550,9 +559,7 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
                 lastEvent.Reset(src.Count);
 
             var exceptions = new List<Exception>();
-
-            var localTasks = new List<ThreadTask>();
-
+            
             for (; itemsCount < src.Count && _ct.IsCancellationRequested == false; itemsCount++)
             {
                 var copy = itemsCount;
@@ -588,15 +595,7 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
                     DoneEvent = lastEvent
                 };
 
-                localTasks.Add(threadTask);
-            }
-
-            // we must add the tasks to the global tasks after we added all the ranges
-            // to prevent the tasks from completing the range fast enough that it won't
-            // see the next range, see: http://issues.hibernatingrhinos.com/issue/RavenDB-4829
-            foreach (var threadTask in localTasks)
-            {
-                _tasks.Add(threadTask, _ct);
+                _tasks.Add(threadTask);
             }
 
             if (allowPartialBatchResumption == false)
