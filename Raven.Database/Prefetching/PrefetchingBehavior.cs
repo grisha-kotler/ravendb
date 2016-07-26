@@ -583,7 +583,7 @@ namespace Raven.Database.Prefetching
                     case TaskStatus.Running:
                     case TaskStatus.WaitingForChildrenToComplete:
                         if (log.IsDebugEnabled)
-                            log.Info("Future batch is not completed, will wait: {0}", allowWaiting);
+                            log.Debug("Future batch is not completed, will wait: {0}", allowWaiting);
 
                         if (allowWaiting == false)
                             return false;
@@ -1103,23 +1103,23 @@ namespace Raven.Database.Prefetching
                 Timestamp = SystemTime.UtcNow,
                 PrefetchingUser = PrefetchingUser
             };
-            Stopwatch sp = Stopwatch.StartNew();
+            var sp = Stopwatch.StartNew();
             context.AddFutureBatch(futureBatchStat);
 
-            var docsCountRef = new Reference<int?>() { Value = docsCount };
+            var docsCountRef = new Reference<int?> { Value = docsCount };
             var cts = new CancellationTokenSource();
             var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, context.CancellationToken);
             var futureIndexBatch = new FutureIndexBatch
             {
                 StartingEtag = nextEtag,
                 Age = Interlocked.Increment(ref currentIndexingAge),
-                CancellationTokenSource = linkedToken,
+                CancellationTokenSource = cts,
                 Type = batchType,
                 DocsCount = docsCountRef,
-                Task = Task.Factory.StartNew(() =>
+                Task = Task.Run(() =>
                 {
                     List<JsonDocument> jsonDocuments = null;
-                    int localWork = 0;
+                    var localWork = 0;
                     var earlyExit = new Reference<bool>();
                     while (context.RunIndexing)
                     {
@@ -1196,7 +1196,14 @@ namespace Raven.Database.Prefetching
                 }
             });
 
-            return futureIndexBatches.TryAdd(nextEtag, futureIndexBatch);
+            var addFutureBatch = futureIndexBatches.TryAdd(nextEtag, futureIndexBatch);
+            if (addFutureBatch == false)
+            {
+                log.Info($"A future batch starting with {nextEtag} etag is already running");
+                cts.Cancel();
+            }
+
+            return addFutureBatch;
         }
 
         private enum FutureBatchType
