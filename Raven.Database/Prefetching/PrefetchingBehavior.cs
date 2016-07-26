@@ -41,15 +41,6 @@ namespace Raven.Database.Prefetching
 
         private readonly ConcurrentQueue<DiskFetchPerformanceStats> loadTimes = new ConcurrentQueue<DiskFetchPerformanceStats>();
 
-        private class DiskFetchPerformanceStats
-        {
-            public int NumberOfDocuments;
-            public long TotalSize;
-            public long LoadingTimeInMillseconds;
-            public long LargestDocSize;
-            public string LargestDocKey;
-        }
-
         private int numberOfTimesWaitedHadToWaitForIO = 0;
         private int splitPrefetchingCount = 0;
 
@@ -537,6 +528,31 @@ namespace Raven.Database.Prefetching
                 Total = totalResults,
                 Canceled = totalCanceled,
                 Faulted = totalFaulted
+            };
+        }
+
+        public IoDebugSummary DebugIOSummary()
+        {
+            var internalLoadTimes = new List<object>();
+            foreach (var loadTime in loadTimes)
+            {
+                internalLoadTimes.Add(new
+                {
+                    NumberOfDocuments = $"{loadTime.NumberOfDocuments:#,#;;0}",
+                    loadTime.LargestDocKey,
+                    LargestDocSizeInBytes = $"{loadTime.LargestDocSize:#,#;;0}",
+                    LoadingTimeInMillseconds = $"{loadTime.LoadingTimeInMillseconds:#,#;;0}",
+                    TotalSizeInKB = $"{((double)loadTime.TotalSize)/1024:#,#.00;;0}",
+                    FetchingDocumentsPerSecondRate = $"{((double)loadTime.NumberOfDocuments)/loadTime.LoadingTimeInMillseconds*1000:#,#;;0}"
+                });
+            }
+
+            return new IoDebugSummary
+            {
+                LoadTimes = internalLoadTimes,
+                CurrentlySplitting = splitPrefetchingCount > 0,
+                CurrentSplitCount = splitPrefetchingCount,
+                NumberOfIOWaits = numberOfTimesWaitedHadToWaitForIO
             };
         }
 
@@ -1514,6 +1530,23 @@ namespace Raven.Database.Prefetching
             futureIndexBatches.Clear();
             prefetchingQueue.Clear();
         }
+    }
+
+    public class DiskFetchPerformanceStats
+    {
+        public int NumberOfDocuments;
+        public long TotalSize;
+        public long LoadingTimeInMillseconds;
+        public long LargestDocSize;
+        public string LargestDocKey;
+    }
+
+    public class IoDebugSummary
+    {
+        public List<object> LoadTimes { get; set; }
+        public bool CurrentlySplitting { get; set; }
+        public int CurrentSplitCount { get; set; }
+        public int NumberOfIOWaits { get; set; }
     }
 
     public class PrefetchingSummary
