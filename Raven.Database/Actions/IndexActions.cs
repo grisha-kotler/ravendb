@@ -306,7 +306,6 @@ namespace Raven.Database.Actions
             {
                 foreach (var indexToAdd in indexesToAdd)
                 {
-                    long opId;
                     var nameToAdd = PutIndexInternal(indexToAdd.Name, indexToAdd.Definition, disableIndexBeforePut: true);
                     if (nameToAdd == null)
                         continue;
@@ -979,7 +978,7 @@ namespace Raven.Database.Actions
                             actions.Documents.DeleteDocument(ScriptedIndexResults.IdPrefix + existingIndexName, scriptedIndexSetup.Etag, out metadata, out etag);
                         }
 
-                        WorkContext.HandleIndexRename(existingIndexName, newIndexName, actions);
+                        WorkContext.HandleIndexRename(existingIndexName, newIndexName, instance.IndexId, actions);
                     });
                 }
             }
