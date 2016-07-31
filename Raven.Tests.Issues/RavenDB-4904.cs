@@ -18,7 +18,7 @@ namespace Raven.Tests.Issues
         private const string IndexName = "testIndex";
 
         [Fact]
-        public void CanLoadWithoutClrType()
+        public void can_create_side_by_side_index_to_replace_index_with_errors()
         {
             using (var store = NewRemoteDocumentStore(true))
             {
@@ -46,7 +46,7 @@ namespace Raven.Tests.Issues
         }
 
         [Fact]
-        public void CanLoadWithoutClrType1()
+        public void can_create_side_by_side_index_with_errors_to_replace_index_with_errors()
         {
             using (var store = NewRemoteDocumentStore(true))
             {
@@ -73,7 +73,7 @@ namespace Raven.Tests.Issues
         }
 
         [Fact]
-        public void CanLoadWithoutClrType2()
+        public void can_create_side_by_side_index_with_errors_to_replace_index()
         {
             using (var store = NewRemoteDocumentStore(true))
             {
