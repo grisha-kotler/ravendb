@@ -9,6 +9,7 @@ using Raven.Abstractions.Data;
 using Raven.Abstractions.Extensions;
 using Raven.Abstractions.Logging;
 using Raven.Database.Config;
+using Sparrow.Collections;
 
 namespace Raven.Database.Impl.BackgroundTaskExecuter
 {
@@ -403,7 +404,7 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
                 batchesCountdown.Reset(numOfBatches);
 
             var localTasks = new List<ThreadTask>();
-            var exceptions = new List<Exception>();
+            var exceptions = new ConcurrentSet<Exception>();
             
             for (var i = 0; i < src.Count; i += pageSize)
             {
@@ -468,8 +469,15 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
 
             WaitForBatchToCompletion(batchesCountdown);
 
-            if (exceptions.Count > 0)
-                throw new AggregateException(exceptions);
+            switch (exceptions.Count)
+            {
+                case 0:
+                    return;
+                case 1:
+                    throw exceptions.First();
+                default:
+                    throw new AggregateException(exceptions);
+            }
         }
 
         private void ExecuteSingleBatchSynchronously<T>(IList<T> src, Action<IEnumerator<T>> action, string description)
@@ -558,7 +566,7 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
             else
                 lastEvent.Reset(src.Count);
 
-            var exceptions = new List<Exception>();
+            var exceptions = new ConcurrentSet<Exception>();
             
             for (; itemsCount < src.Count && _ct.IsCancellationRequested == false; itemsCount++)
             {
@@ -607,8 +615,15 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
                 WaitForBatchAllowingPartialBatchResumption(lastEvent, batch, completedMultiplier, freeThreadsMultiplier, maxWaitMultiplier);
             }
 
-            if (exceptions.Count > 0)
-                throw new AggregateException(exceptions);
+            switch (exceptions.Count)
+            {
+                case 0:
+                    return;
+                case 1:
+                    throw exceptions.First();
+                default:
+                    throw new AggregateException(exceptions);
+            }
         }
 
         private void ExecuteSingleBatchSynchronously<T>(IList<T> src, Action<T> action, string description)
