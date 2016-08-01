@@ -259,6 +259,11 @@ namespace Raven.Database.Actions
                 IndexName = indexName
             });
 
+            TryCreateIndexesDeletionTask();
+        }
+
+        private void TryCreateIndexesDeletionTask()
+        {
             if (Interlocked.CompareExchange(ref lockStatus, Locked, UnLocked) == Locked)
                 return;
 
@@ -273,7 +278,6 @@ namespace Raven.Database.Actions
             {
                 try
                 {
-                    
                     var success = new List<string>();
                     var failed = new List<string>();
                     var sp = Stopwatch.StartNew();
@@ -301,6 +305,13 @@ namespace Raven.Database.Actions
                 finally
                 {
                     Interlocked.Exchange(ref lockStatus, UnLocked);
+
+                    if (pendingDeletions.IsEmpty == false)
+                    {
+                        //handling a race condition where we get a new deletion
+                        //and exiting while thinking that the deletion will be handled
+                        TryCreateIndexesDeletionTask();
+                    }
                 }
             }, TaskCreationOptions.LongRunning);
 
