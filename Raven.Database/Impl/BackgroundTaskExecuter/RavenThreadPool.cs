@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Raven.Abstractions.Data;
@@ -474,7 +475,8 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
                 case 0:
                     return;
                 case 1:
-                    throw exceptions.First();
+                    ExceptionDispatchInfo.Capture(exceptions.First()).Throw();
+                    break;
                 default:
                     throw new AggregateException(exceptions);
             }
@@ -620,7 +622,8 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
                 case 0:
                     return;
                 case 1:
-                    throw exceptions.First();
+                    ExceptionDispatchInfo.Capture(exceptions.First()).Throw();
+                    break;
                 default:
                     throw new AggregateException(exceptions);
             }
