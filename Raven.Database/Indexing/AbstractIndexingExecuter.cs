@@ -142,15 +142,16 @@ namespace Raven.Database.Indexing
 
             foreach (var innerException in ae.Flatten().InnerExceptions)
             {
-                if (innerException is OperationCanceledException)
-                    return true;
+                if (innerException is AggregateException &&
+                    IsOperationCanceledException(innerException))
+                    continue;
 
-                var inner = innerException as AggregateException;
-                if (inner != null && IsOperationCanceledException(e))
-                    return true;
+                if (innerException is OperationCanceledException == false)
+                    return false;
             }
 
-            return false;
+            //return true only if all of the exceptions are operation canceled exceptions
+            return true;
         }
 
         protected Exception HandleIfOutOfMemory(Exception exception)
