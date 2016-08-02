@@ -286,8 +286,6 @@ namespace Raven.Client.Changes
 
             logger.ErrorException("Got error from server connection for " + url + " on id " + id, error);
 
-            DisposeConnection();
-
             RenewConnection();
         }
 
@@ -318,6 +316,8 @@ namespace Raven.Client.Changes
                 //we already started the reconnection process
                 return;
             }
+
+            DisposeConnection();
 
             Time.Delay(TimeSpan.FromSeconds(15))
                 .ContinueWith(_ => EstablishConnection())
@@ -351,7 +351,6 @@ namespace Raven.Client.Changes
             switch (type)
             {
                 case "Disconnect":
-                    DisposeConnection();
                     RenewConnection();
                     break;
                 case "Initialized":
