@@ -673,14 +673,13 @@ namespace Raven.Database
 
         private int GetNumberOfAlerts()
         {
-            AlertsDocument alertsDocument;
             var alertsDoc = Documents.Get(Constants.RavenAlerts, null);
             if (alertsDoc == null)
                 return 0;
 
             try
             {
-                alertsDocument = alertsDoc.DataAsJson.JsonDeserialization<AlertsDocument>();
+                var alertsDocument = alertsDoc.DataAsJson.JsonDeserialization<AlertsDocument>();
                 return alertsDocument.Alerts.Count;
             }
             catch (Exception)
