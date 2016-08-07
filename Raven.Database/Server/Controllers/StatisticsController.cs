@@ -28,7 +28,7 @@ namespace Raven.Database.Server.Controllers
         [RavenRoute("databases/{databaseName}/indexes-stats")]
         public HttpResponseMessage IndexesStats()
         {
-            return GetMessageWithObject(Database.Statistics.Indexes);
+            return GetMessageWithObject(Database.IndexesStatistics);
         }
     }
 }
