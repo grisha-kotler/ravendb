@@ -20,7 +20,7 @@ import queryIndexDebugDocsCommand = require("commands/database/debug/queryIndexD
 import queryIndexDebugMapCommand = require("commands/database/debug/queryIndexDebugMapCommand");
 import queryIndexDebugReduceCommand = require("commands/database/debug/queryIndexDebugReduceCommand");
 import queryIndexDebugAfterReduceCommand = require("commands/database/debug/queryIndexDebugAfterReduceCommand");
-import getIndexNamesWithTypeCommand = require("commands/database/index/getIndexNamesWithTypeCommand");
+import getIndexNamesCommand = require("commands/database/index/getIndexNamesCommand");
 
 import dynamicHeightBindingHandler = require("common/bindingHelpers/dynamicHeightBindingHandler");
 
@@ -330,7 +330,7 @@ class visualizer extends viewModelBase {
     }
 
     fetchAllIndexes(db: database): JQueryPromise<any> {
-        return new getIndexNamesWithTypeCommand(this.activeDatabase())
+        return new getIndexNamesCommand(this.activeDatabase(), true)
             .execute()
             .done((results: indexDataDto[]) => this.indexes(results.filter(i => i.IsMapReduce)));
     }

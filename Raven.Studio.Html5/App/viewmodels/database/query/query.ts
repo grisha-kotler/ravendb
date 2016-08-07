@@ -6,7 +6,7 @@ import app = require("durandal/app");
 import router = require("plugins/router");
 import appUrl = require("common/appUrl");
 import viewModelBase = require("viewmodels/viewModelBase");
-import getIndexNamesWithTypeCommand = require("commands/database/index/getIndexNamesWithTypeCommand");
+import getIndexNamesCommand = require("commands/database/index/getIndexNamesCommand");
 import getCollectionsCommand = require("commands/database/documents/getCollectionsCommand");
 import getIndexDefinitionCommand = require("commands/database/index/getIndexDefinitionCommand");
 import aceEditorBindingHandler = require("common/bindingHelpers/aceEditorBindingHandler");
@@ -292,7 +292,7 @@ class query extends viewModelBase {
     private fetchAllIndexes(db: database): JQueryPromise<any> {
         var deferred = $.Deferred();
 
-        new getIndexNamesWithTypeCommand(db)
+        new getIndexNamesCommand(db, true)
             .execute()
             .done((results: indexDataDto[]) => {
                 this.indexes(results);
