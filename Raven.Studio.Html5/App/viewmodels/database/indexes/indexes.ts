@@ -45,6 +45,7 @@ class indexes extends viewModelBase {
     lockModeCommon: KnockoutComputed<string>;
     searchText = ko.observable<string>();
     summary: KnockoutComputed<string>;
+    isRecoverringCorruptedIndexes = ko.observable<boolean>();
 
     constructor() {
         super();
@@ -496,7 +497,9 @@ class indexes extends viewModelBase {
     }
 
     tryRecoverCorruptedIndexes() {
-        new tryRecoverCorruptedIndexes(this.activeDatabase()).execute();
+        this.isRecoverringCorruptedIndexes(true);
+        var action = new tryRecoverCorruptedIndexes(this.activeDatabase()).execute();
+        action.always(() => this.isRecoverringCorruptedIndexes(false));
     }
 
     setLockModeAllIndexes(lockModeString: string, lockModeStrForTitle: string) {

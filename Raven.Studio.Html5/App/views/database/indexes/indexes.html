@@ -114,9 +114,10 @@
             </ul>
         </div>
         <div class="btn-group" data-bind="visible: corruptedIndexes().length > 0">
-            <a class="btn btn-danger" title="Try to recover corrupted indexes by reopening them (the index reset might apply)" data-bind="click: tryRecoverCorruptedIndexes">
+            <button type="button" data-bind="click: tryRecoverCorruptedIndexes, disable: isRecoverringCorruptedIndexes" class="btn btn-danger" title="Try to recover corrupted indexes by reopening them (the index reset might apply)">
+                <i class="fa fa-spinner fa-spin fa-fw fa-1" data-bind="visible: isRecoverringCorruptedIndexes"></i>
                 Try to recover corrupted indexes
-            </a>
+            </button>
         </div>
         <div class="btn-group">
             <input type="text" accesskey="/" class="form-control" placeholder="Search" data-bind="value: searchText, valueUpdate: 'afterkeydown', visible: indexGroups().length > 0" title="Search for an index (Alt+/)">
