@@ -64,15 +64,15 @@ namespace Raven.Database.Indexing
                     }
                     catch (OperationCanceledException)
                     {
-                        Log.Info("Got rude cancellation of indexing as a result of shutdown, aborting current indexing run");
-                        return;
+                        Log.Info("Got rude cancellation of indexing, aborting current indexing run");
+                        continue;
                     }
                     catch (AggregateException ae)
                     {
                         if (IsOperationCanceledException(ae))
                         {
-                            Log.Info("Got rude cancellation of indexing as a result of shutdown, aborting current indexing run");
-                            return;
+                            Log.Info("Got rude cancellation of indexing, aborting current indexing run");
+                            continue;
                         }
 
                         foundWork = true;
