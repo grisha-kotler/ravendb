@@ -166,7 +166,7 @@ namespace Raven.Database.Indexing
                     CreatedAt = DateTime.UtcNow,
                     Title = error,
                     UniqueKey = error,
-                    Message = $"StackTrace: {e.StackTrace}",
+                    Message = e.ToString(),
                     Exception = e.Message
                 });
                 return false;
@@ -236,7 +236,7 @@ namespace Raven.Database.Indexing
                     CreatedAt = DateTime.UtcNow,
                     Title = error,
                     UniqueKey = error,
-                    Message = $"StackTrace: {e.StackTrace}",
+                    Message = e.ToString(),
                     Exception = e.Message
                 });
                 return false;

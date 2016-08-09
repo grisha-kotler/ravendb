@@ -113,7 +113,7 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
                     CreatedAt = DateTime.UtcNow,
                     Title = error,
                     UniqueKey = error,
-                    Message = $"StackTrace: {e.StackTrace}",
+                    Message = e.ToString(),
                     Exception = e.Message
                 });
             }
@@ -324,7 +324,7 @@ namespace Raven.Database.Impl.BackgroundTaskExecuter
                     CreatedAt = DateTime.UtcNow,
                     Title = error,
                     UniqueKey = error,
-                    Message = $"StackTrace: {e.StackTrace}",
+                    Message = e.ToString(),
                     Exception = e.Message
                 });
             }
