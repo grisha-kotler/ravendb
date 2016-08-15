@@ -456,6 +456,9 @@ namespace Raven.Database.Indexing
             {
                 context.MetricsCounters.IndexedPerSecond.Mark(indexBatchOperations.Keys.Count);
 
+                if (context.Database.MappingThreadPool == null)
+                    throw new OperationCanceledException();
+
                 context.Database.MappingThreadPool.ExecuteBatch(indexBatchOperations.Keys.ToList(),
                     indexBatchOperation =>
                     {
@@ -489,6 +492,9 @@ namespace Raven.Database.Indexing
         private bool GenerateIndexingBatchesAndPrefetchDocuments(List<IndexingGroup> groupedIndexes, ConcurrentDictionary<IndexingBatchOperation, object> indexBatchOperations)
         {
             bool operationWasCancelled = false;
+
+            if (context.Database.MappingThreadPool == null)
+                throw new OperationCanceledException();
 
             context.Database.MappingThreadPool.ExecuteBatch(groupedIndexes,
                 indexingGroup =>
@@ -947,6 +953,10 @@ namespace Raven.Database.Indexing
 
             var results = new ConcurrentQueue<IndexingBatchForIndex>();
             var actions = new ConcurrentQueue<Tuple<Action<IStorageActionsAccessor>, IndexToWorkOn>>();
+
+            if (context.Database.MappingThreadPool == null)
+                throw new OperationCanceledException();
+
             context.Database.MappingThreadPool.ExecuteBatch(indexesToWorkOn, indexToWorkOn =>
             {
                 try
