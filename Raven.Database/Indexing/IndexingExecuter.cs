@@ -518,6 +518,9 @@ namespace Raven.Database.Indexing
 
                         context.CancellationToken.ThrowIfCancellationRequested();
                         var lastByEtag = PrefetchingBehavior.GetHighestJsonDocumentByEtag(curGroupJsonDocs);
+                        if (lastByEtag == null)
+                            return;
+
                         var lastModified = lastByEtag.LastModified.Value;
                         var lastEtag = lastByEtag.Etag;
                         List<IndexToWorkOn> filteredOutIndexes;
