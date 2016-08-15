@@ -118,9 +118,16 @@ namespace Raven.Tests.Issues
         [Fact]
         public async Task If_deleted_original_index_on_destination_should_simply_create_the_replacement_index()
         {
+            PortRangeStart = 7000;
             using (var source = CreateStore())
             using (var destination = CreateStore())
             {
+                var sourceDatabase = await servers[0].Server.GetDatabaseInternal(source.DefaultDatabase);
+                var destinationDatabase = await servers[1].Server.GetDatabaseInternal(destination.DefaultDatabase);
+
+                sourceDatabase.StopBackgroundWorkers();
+                destinationDatabase.StopBackgroundWorkers();
+
                 var testIndex = new UserIndex();
                 var oldIndexDef = new IndexDefinition
                 {
@@ -128,11 +135,16 @@ namespace Raven.Tests.Issues
                 };
                 source.DatabaseCommands.PutIndex(testIndex.IndexName, oldIndexDef);
 
-                var sourceDatabase = await servers[0].Server.GetDatabaseInternal(source.DefaultDatabase);
-                var destinationDatabase = await servers[1].Server.GetDatabaseInternal(destination.DefaultDatabase);
+                using (var session = source.OpenSession())
+                {
+                    for (var i = 0; i < 10; i++)
+                        session.Store(new User
+                        {
+                            Name = "User - " + i
+                        });
 
-                sourceDatabase.StopBackgroundWorkers();
-                destinationDatabase.StopBackgroundWorkers();
+                    session.SaveChanges();
+                }
 
                 var sourceReplicationTask = sourceDatabase.StartupTasks.OfType<ReplicationTask>().First();
                 sourceReplicationTask.Pause();
@@ -141,9 +153,8 @@ namespace Raven.Tests.Issues
 
                 testIndex.SideBySideExecute(source);
 
-                //do side-by-side index replication -> but since in the destination there is no original index, 
-                //simply create the side-by-side index as if it replaced the old index already
-                sourceReplicationTask.IndexReplication.Execute();
+                //the side by side will be automatically replicated and saved as a simple index
+                Assert.Null(destinationDatabase.Indexes.GetIndexDefinition(Constants.SideBySideIndexNamePrefix + testIndex.IndexName));
 
                 var definition = destination.DatabaseCommands.GetIndex(testIndex.IndexName);
                 Assert.NotNull(definition);
