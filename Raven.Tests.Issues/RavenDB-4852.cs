@@ -19,7 +19,7 @@ namespace Raven.Tests.Issues
         [InlineData(5000, "01000000-0000-0001-0000-000000001390")]
         [InlineData(10000, "01000000-0000-0001-0000-000000002719")]
         [InlineData(30000, "01000000-0000-0001-0000-00000000753A")]
-        public void CanLoadWithoutClrType(int count, string etag)
+        public void sources_document_will_be_replicated_in_etl(int count, string etag)
         {
             using (var master = CreateStore())
             using (var slave = CreateStore())
