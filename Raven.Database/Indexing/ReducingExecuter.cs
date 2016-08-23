@@ -93,8 +93,6 @@ namespace Raven.Database.Indexing
             }
             catch (Exception e)
             {
-                operationCanceled = true;
-
                 if (HandleIfOutOfMemory(e, new OutOfMemoryDetails
                 {
                     Index = indexToWorkOn.Index,
@@ -103,13 +101,21 @@ namespace Raven.Database.Indexing
                 }))
                 {
                     //if we got a OOME we need to decrease the batch size
+                    operationCanceled = true;
                     return null;
                 }
 
                 if (IsOperationCanceledException(e))
+                {
+                    operationCanceled = true;
                     return null;
-                    
-                context.AddError(indexToWorkOn.IndexId, indexToWorkOn.Index.PublicName, null, e);
+                }
+
+                var message = $"Failed to reduce index: {indexToWorkOn.Index.PublicName} (id: {indexToWorkOn.IndexId}) " +
+                              $"{singleStepReduceKeys.Count} single step keys and {multiStepsReduceKeys.Count} multi step keys. " +
+                              "Skipping this batch (it won't be reduced)";
+
+                indexToWorkOn.Index.AddIndexingError(e, message);
             }
             finally
             {
