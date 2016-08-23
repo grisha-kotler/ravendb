@@ -63,6 +63,7 @@ namespace Raven.Database.Indexing
         private const long OutOfMemoryErrorsLimit = 10;
         private long indexingOutOfMemoryErrors;
         private long reducingOutOfMemoryErrors;
+        public long OutOfMemoryErrorsCount => Interlocked.Read(ref indexingOutOfMemoryErrors) + Interlocked.Read(ref reducingOutOfMemoryErrors);
 
         private const long ErrorsLimit = 20;
         private long errors;

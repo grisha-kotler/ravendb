@@ -430,7 +430,8 @@ namespace Raven.Database.Indexing
             if (indexingGroup.JsonDocs != null && indexingGroup.JsonDocs.Count > 0)
             {
                 indexingGroup.PrefetchingBehavior.CleanupDocuments(indexingGroup.LastIndexedEtag);
-                indexingGroup.PrefetchingBehavior.UpdateAutoThrottler(indexingGroup.JsonDocs, elapsedTimeSpan);
+                var oomeErrorsCount = indexingGroup.Indexes.Select(x => x.Index).Sum(x => x.OutOfMemoryErrorsCount);
+                indexingGroup.PrefetchingBehavior.UpdateAutoThrottler(indexingGroup.JsonDocs, elapsedTimeSpan, oomeErrorsCount > 0);
                 indexingGroup.PrefetchingBehavior.BatchProcessingComplete();
                 context.ReportIndexingBatchCompleted(indexingGroup.BatchInfo);
             }
@@ -815,7 +816,8 @@ namespace Raven.Database.Indexing
                     return null;
                 }
 
-                var message = $"Failed to index {batchForIndex.Batch.Docs.Count} documents " +
+                var docsCount = batchForIndex.Batch.Docs.Count;
+                var message = $"Failed to index {docsCount} document{(docsCount > 1 ? "s" : string.Empty)} " +
                               $"for index: {batchForIndex.Index.PublicName} (id: {batchForIndex.Index.IndexId}). " +
                               "Skipping this batch (it won't be indexed)";
 
