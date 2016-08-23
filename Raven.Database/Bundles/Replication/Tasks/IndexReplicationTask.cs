@@ -122,7 +122,7 @@ namespace Raven.Database.Bundles.Replication.Tasks
                 {
                     var failedToReplicate = false;
                     var commonReplicatedIndexIds = new HashSet<int>();
-                    var replicationDestinations = replication.GetReplicationDestinations();
+                    var replicationDestinations = GetReplicationDestinations();
                     
                     foreach (var destination in replicationDestinations)
                     {
@@ -263,7 +263,7 @@ namespace Raven.Database.Bundles.Replication.Tasks
                 using (CultureHelper.EnsureInvariantCulture())
                 {
                     shouldSkipDestinationPredicate = shouldSkipDestinationPredicate ?? (x => x.SkipIndexReplication == false);
-                    var replicationDestinations = replication.GetReplicationDestinations(x => shouldSkipDestinationPredicate(x));
+                    var replicationDestinations = GetReplicationDestinations(x => shouldSkipDestinationPredicate(x));
 
                     foreach (var destination in replicationDestinations)
                     {
@@ -329,7 +329,7 @@ namespace Raven.Database.Bundles.Replication.Tasks
                             {
                                 foreach (var indexTombstone in replicatedIndexTombstones)
                                 {
-                                    if (indexTombstone.Value != replicationDestinations.Length &&
+                                    if (indexTombstone.Value != replicationDestinations.Count &&
                                         database.IndexStorage.HasIndex(indexTombstone.Key) == false)
                                     {
                                         continue;
@@ -370,7 +370,7 @@ namespace Raven.Database.Bundles.Replication.Tasks
             if(definition.IsSideBySideIndex)
                 return;
 
-            var destinations = replication.GetReplicationDestinations(x => x.SkipIndexReplication == false);
+            var destinations = GetReplicationDestinations(x => x.SkipIndexReplication == false);
 
             var sideBySideIndexes = database.Indexes.Definitions.Where(x => x.IsSideBySideIndex).ToDictionary(x => x.Name, x => x);
 
@@ -447,7 +447,7 @@ namespace Raven.Database.Bundles.Replication.Tasks
                     //If we don't have any destination to replicate to (we are probably slave node)
                     //we shouldn't keep a tombstone since we are not going to remove it anytime
                     //and keeping it prevents us from getting that index created again.
-                    if (replication.GetReplicationDestinations().Length == 0)
+                    if (GetReplicationDestinations().Count == 0)
                         return;
 
                     var metadata = new RavenJObject
@@ -553,6 +553,12 @@ namespace Raven.Database.Bundles.Replication.Tasks
             }
         }
 
+        private List<ReplicationStrategy> GetReplicationDestinations(Predicate<ReplicationDestination> predicate = null)
+        {
+            var destinations = replication.GetReplicationDestinations(predicate);
+            return destinations.Where(x => x.IsETL == false).ToList();
+        }
+
         public void SendLastQueried()
         {
             if (database.Disposed)
@@ -572,7 +578,7 @@ namespace Raven.Database.Bundles.Replication.Tasks
 
                     if (relevantIndexLastQueries.Count == 0) return;
 
-                    var destinations = replication.GetReplicationDestinations(x => x.SkipIndexReplication == false);
+                    var destinations = GetReplicationDestinations(x => x.SkipIndexReplication == false);
 
                     foreach (var destination in destinations)
                     {
