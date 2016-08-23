@@ -605,7 +605,7 @@ namespace Raven.Bundles.Replication.Tasks
                                 }
                             }
 
-                            if (destination.IsETL == false
+                            if (destination.IsETL == false &&
                                 destinationsReplicationInformationForSource.LastDocumentEtag == Etag.Empty &&
                                 destinationsReplicationInformationForSource.LastAttachmentEtag == Etag.Empty)
                             {
