@@ -171,12 +171,12 @@ namespace Raven.StorageExporter
 
         private void ExtractDocumentsFromEtag(JsonTextWriter jsonWriter, long totalDocsCount)
         {
-            var currentLastEtag = DocumentsStartEtag;
-
             Debug.Assert(DocumentsStartEtag != Etag.Empty);
+
+            var currentLastEtag = DocumentsStartEtag;
             ConsoleUtils.ConsoleWriteLineWithColor(ConsoleColor.Yellow, "Starting to export documents as of etag={0}\n" +
-                    "TotalDocCount doesn't substract skipped items\n", DocumentsStartEtag);
-            currentLastEtag.DecrementBy(1);
+                    "Total documents count doesn't substract skipped items\n", DocumentsStartEtag);
+            currentLastEtag = currentLastEtag.DecrementBy(1);
 
             var ct = new CancellationToken();
             long currentDocsCount = 0;
@@ -202,6 +202,7 @@ namespace Raven.StorageExporter
                 catch (Exception e)
                 {
                     currentDocsCount++;
+                    currentLastEtag = currentLastEtag.IncrementBy(1);
                     ReportCorruptedDocumentWithEtag("documents", currentDocsCount, e.Message, currentLastEtag);
                 }
                 finally
