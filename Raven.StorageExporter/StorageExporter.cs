@@ -10,6 +10,7 @@ using Raven.Bundles.Compression.Plugin;
 using Raven.Bundles.Encryption.Plugin;
 using Raven.Bundles.Encryption.Settings;
 using Raven.Database.Config;
+using Raven.Database.Impl;
 using Raven.Database.Plugins;
 using Raven.Database.Storage;
 using Raven.Imports.Newtonsoft.Json;
@@ -30,10 +31,11 @@ namespace Raven.StorageExporter
             var ravenConfiguration = new RavenConfiguration
             {
                 DataDirectory = databaseBaseDirectory,
+                CacheDocumentsInMemory = false,
                 Storage =
                 {
                     PreventSchemaUpdate = true,
-                    SkipConsistencyCheck = true
+                    SkipConsistencyCheck = true,
                 }
             };
             CreateTransactionalStorage(ravenConfiguration);
@@ -118,13 +120,16 @@ namespace Raven.StorageExporter
 
             storage.Batch(accsesor => totalDocsCount = accsesor.Documents.GetDocumentsCount());
 
-            if (DocumentsStartEtag == Etag.Empty)
+            using (DocumentCacher.SkipSetDocumentsInDocumentCache())
             {
-                ExtractDocuments(jsonWriter, totalDocsCount);
-            }
-            else
-            {
-                ExtractDocumentsFromEtag(jsonWriter, totalDocsCount);
+                if (DocumentsStartEtag == Etag.Empty)
+                {
+                    ExtractDocuments(jsonWriter, totalDocsCount);
+                }
+                else
+                {
+                    ExtractDocumentsFromEtag(jsonWriter, totalDocsCount);
+                }
             }
         }
 
