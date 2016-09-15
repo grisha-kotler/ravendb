@@ -8,9 +8,10 @@ class pagedList {
     totalResultCount = ko.observable(0);
     private items = [];
     isFetching = false;
-    queuedFetch: { skip: number; take: number; task: JQueryDeferred<pagedResultSet> } = null;
+    queuedFetch: Array<{ skip: number; take: number; task: JQueryDeferred<pagedResultSet> }> = [];
     collectionName = "";
     currentItemIndex = ko.observable(0);
+    plus = 0;
 
     constructor(private fetcher: (skip: number, take: number) => JQueryPromise<pagedResultSet>) {
         if (!fetcher) {
@@ -19,10 +20,8 @@ class pagedList {
     }
 
     clear() {
-        if (!!this.queuedFetch) {
-            this.queuedFetch.task.reject("data is being reloaded");
-            this.queuedFetch = null;
-        }
+        this.queuedFetch.forEach(x => x.task.reject("data is being reloaded"));
+        this.queuedFetch = [];
 
         while (this.items.length > 0) {
             this.items.pop();
@@ -34,11 +33,6 @@ class pagedList {
     }
 
     fetch(skip: number, take: number): JQueryPromise<pagedResultSet> {
-        if (this.isFetching) {
-            this.queuedFetch = { skip: skip, take: take, task: $.Deferred() };
-            return this.queuedFetch.task;
-        }
-
         var cachedItemsSlice = this.getCachedSliceOrNull(skip, take);
         if (cachedItemsSlice) {
             // We've already fetched these items. Just return them immediately.
@@ -47,20 +41,33 @@ class pagedList {
             deferred.resolve(results);
             return deferred;
         }
-        else {
-            // We haven't fetched some of the items. Fetch them now from remote.
-            this.isFetching = true;
-            var remoteFetch = this.fetcher(skip, take)
-                .done((resultSet: pagedResultSet) => {
-                    this.totalResultCount(resultSet.totalResultCount);
-                    resultSet.items.forEach((r, i) => this.items[i + skip] = r);
-                })
-                .always(() => {
-                    this.isFetching = false;
-                    this.runQueuedFetch();
-                });
-            return remoteFetch;
+
+        if (this.isFetching) {
+            var queuedFetch = { skip: skip, take: take, task: $.Deferred() };
+            this.queuedFetch.push(queuedFetch);
+            return queuedFetch.task;
         }
+
+        //else {
+        // We haven't fetched some of the items. Fetch them now from remote.
+        this.isFetching = true;
+        this.plus++;
+        var self = this;
+        var remoteFetch = this.fetcher(skip, take)
+            .done((resultSet: pagedResultSet) => {
+                self.totalResultCount(resultSet.totalResultCount);
+                resultSet.items.forEach((r, i) => self.items[i + skip] = r);
+            })
+            .fail(() => {
+                var x = 4;
+            })
+            .always(() => {
+                self.plus--;
+                self.isFetching = false;
+                self.runQueuedFetch();
+            });
+        return remoteFetch;
+        //}
     }
 
     getCachedSliceOrNull(skip: number, take: number): any[] {
@@ -103,15 +110,17 @@ class pagedList {
     }
 
     runQueuedFetch() {
-        if (this.queuedFetch) {
-            var queuedSkip = this.queuedFetch.skip;
-            var queuedTake = this.queuedFetch.take;
-            var queuedTask = this.queuedFetch.task;
-            this.queuedFetch = null;
-            var fetchTask = this.fetch(queuedSkip, queuedTake);
-            fetchTask.done(results => queuedTask.resolve(results));
-            fetchTask.fail(error => queuedTask.reject(error));
+        if (this.queuedFetch.length === 0) {
+            return;
         }
+
+        var queuedFetch = this.queuedFetch.pop();
+        var queuedSkip = queuedFetch.skip;
+        var queuedTake = queuedFetch.take;
+        var queuedTask = queuedFetch.task;
+        var fetchTask = this.fetch(queuedSkip, queuedTake);
+        fetchTask.done(results => queuedTask.resolve(results));
+        fetchTask.fail(error => queuedTask.reject(error));
     }
 
     invalidateCache() {

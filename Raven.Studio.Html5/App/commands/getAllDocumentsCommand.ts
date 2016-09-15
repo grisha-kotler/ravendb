@@ -15,18 +15,13 @@ class getAllDocumentsCommand extends commandBase {
     execute(): JQueryPromise<pagedResultSet> {
 
         // Getting all documents requires a 2 step process:
-        // 1. Fetch /indexes/Raven/DocumentsByEntityName to get the total doc count.
+        // 1. Get the database total doc count.
         // 2. Fetch /docs to get the actual documents.
 
-        // Fetching #1 will return a document list, but it won't include the system docs.
-        // Therefore, we must fetch /docs as well, which gives us the system docs.
-
         var docsTask = this.fetchDocs();
-        var totalResultsTask = this.fetchTotalResultCount();
         var doneTask = $.Deferred();
-        var combinedTask = $.when(docsTask, totalResultsTask);
-        combinedTask.done((docsResult: document[], resultsCount: number) => doneTask.resolve(new pagedResultSet(docsResult, resultsCount)));
-        combinedTask.fail(xhr => doneTask.reject(xhr));
+        docsTask.done((docsResult: document[]) => doneTask.resolve(new pagedResultSet(docsResult, this.ownerDatabase.itemCount())));
+        docsTask.fail(xhr => doneTask.reject(xhr));
         return doneTask;
     }
 
