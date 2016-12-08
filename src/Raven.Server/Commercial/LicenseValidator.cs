@@ -24,6 +24,7 @@ namespace Raven.Server.Commercial
             True = 1,
             Int = 2,
             Date = 3,
+            String = 4
         }
 
         private static DateTime FromDosDate(ushort number)
@@ -37,6 +38,11 @@ namespace Raven.Server.Commercial
         private static byte[] GetBytes(string str)
         {
             return Convert.FromBase64String(str);
+        }
+
+        private static string GetString(byte[] bytes)
+        {
+            return Convert.ToBase64String(bytes);
         }
 
         public static Dictionary<string, object> Validate(License licenseKey, RSAParameters rsAParameters)
@@ -68,6 +74,10 @@ namespace Raven.Server.Commercial
                             break;
                         case ValueType.Date:
                             val = FromDosDate(br.ReadUInt16());
+                            break;
+                        case ValueType.String:
+                            var valLength = (int)br.ReadByte();
+                            val = GetString(br.ReadBytes(valLength));
                             break;
                         default:
                             throw new ArgumentOutOfRangeException();
