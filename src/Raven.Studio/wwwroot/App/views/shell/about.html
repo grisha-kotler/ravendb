@@ -4,34 +4,31 @@
             <div class="row">
                 <div class="col-sm-12 text-center">
                     <i class="icon-logo text-primary"></i>
-                    <h3 class="text-center">Server: v4.0.0-alpha-40000</h3>
-                    <h3 class="text-center">Client: v4.0.0-alpha-40000</h3>
+                    <h3 class="text-center">Server: <span data-bind="text: serverVersion().FullVersion"></span></h3>
+                    <h3 class="text-center">Client: <span data-bind="text: clientVersion()"></span></h3>
 
 
                 </div>
                 <div class="col-sm-6 text-center">
-                       <div data-bind="visible: isNonExpiredCommercial">
+                       <div>
                         <div class="roundborder prerelease">
                             <i class="icon-document"></i>
                         </div>
                         <h3>LICENSE</h3>
-                        <h4 data-bind="text: licenseStatusText">Prerelease license</h4>
+                        <h4 data-bind="text: licenseType"></h4>
                     </div>
    
-                    <p data-bind="visible: licenseExpiresAt" class="expire-date"><small>EXPIRES: <span data-bind="text: licenseExpiresAt">2016-Jun-22</span></small></p>
-                    <a href="http://ravendb.net/support" class="btn btn-lg">Register</a>
+                    <p data-bind="visible: expiration" class="expire-date"><small>EXPIRES: <span data-bind="text: expiration"></span></small></p>
+                    <button class="btn btn-lg" data-bind="click: register, visible: !registered()">Register</button>
                 </div>
                 <div class="col-sm-6 text-center">                   
-                        <div data-bind="visible: supportStatus === 'LicenseNotFound'">
+                        <div>
                             <div class="roundborder prerelease">
                                 <i class="icon-help"></i>
                             </div>
                             <h3>SUPPORT</h3>
                             <h4>Upcoming in final release</h4>
-                            <p>&nbsp;</p>
-                        </div>
-                        <div data-bind="visible: supportExpiresAt" class="expire-date" style="display: none;">
-                            EXPIRES: <span data-bind="text: supportExpiresAt"></span>
+                            <p data-bind="visible: expiration">&nbsp;</p>
                         </div>
                     <a href="mailto:support@ravendb.net" class="btn btn-lg">Feedback</a>
                 </div>

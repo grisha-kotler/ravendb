@@ -7,27 +7,20 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-using Lucene.Net.Support;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Raven.Abstractions.Data;
-using Raven.Abstractions.Extensions;
-using Raven.Abstractions.Logging;
-using Raven.Abstractions.Util;
 using Raven.Client.Data;
 using Raven.Client.Json;
-using Raven.Database.Util;
+using Raven.Server.Alerts;
+using Raven.Server.Commercial;
 using Raven.Server.Config;
-using Raven.Server.Config.Categories;
 using Raven.Server.Documents.TcpHandlers;
 using Raven.Server.Exceptions;
-using Raven.Server.Json;
 using Raven.Server.Routing;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.BackgroundTasks;
-using Raven.Server.ServerWide.Context;
 using Raven.Server.Utils;
-using Sparrow.Collections;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 using Sparrow.Logging;
@@ -163,6 +156,25 @@ namespace Raven.Server
             {
                 if (_logger.IsInfoEnabled)
                     _logger.Info("Could not setup latest version check.", e);
+            }
+
+            try
+            {
+                LicenseManager.Initialize(ServerStore);
+            }
+            catch (Exception e)
+            {
+                if (_logger.IsInfoEnabled)
+                    _logger.Info("Could not setup license check.", e);
+
+                ServerStore.Alerts.AddAlert(new Alert
+                {
+                    Type = AlertType.LicenseManagerInitializationError,
+                    Key = nameof(AlertType.LicenseManagerInitializationError),
+                    Severity = AlertSeverity.Info,
+                    Content = new LicenseManager.InitializationErrorAlertContent(e),
+                    Message = LicenseManager.InitializationErrorAlertContent.FormatMessage()
+                });
             }
         }
 

@@ -10,13 +10,12 @@ using Raven.Client.Indexing;
 using Raven.Client.Smuggler;
 using Raven.Json.Linq;
 using Raven.Server.Alerts;
+using Raven.Server.Commercial;
 using Raven.Server.Documents;
 using Raven.Server.Documents.Indexes.Debugging;
 using Raven.Server.Documents.Versioning;
 using Raven.Server.Documents.SqlReplication;
 using Raven.Server.Documents.PeriodicExport;
-using Raven.Server.Smuggler.Documents.Data;
-using Raven.Server.Web.Operations;
 using Sparrow.Json;
 using TypeScripter;
 using TypeScripter.TypeScript;
@@ -131,6 +130,11 @@ namespace TypingsGenerator
 
             // map reduce visualizer
             scripter.AddType(typeof(ReduceTree));
+
+            // license 
+            scripter.AddType(typeof(License));
+            scripter.AddType(typeof(UserRegistrationInfo));
+            scripter.AddType(typeof(LicenseStatus));
 
             return scripter;
         }
