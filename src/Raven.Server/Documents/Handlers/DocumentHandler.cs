@@ -112,15 +112,12 @@ namespace Raven.Server.Documents.Handlers
 
             var etag = GetLongQueryString("etag", false);
             IEnumerable<Document> documents;
-            bool isLoadStartingWith = false;
             if (etag != null)
             {
                 documents = Database.DocumentsStorage.GetDocumentsFrom(context, etag.Value, GetStart(), GetPageSize());
             }
             else if (HttpContext.Request.Query.ContainsKey("startsWith"))
             {
-                isLoadStartingWith = true;
-
                 documents = Database.DocumentsStorage.GetDocumentsStartingWith(context,
                     HttpContext.Request.Query["startsWith"],
                     HttpContext.Request.Query["matches"],
@@ -137,29 +134,20 @@ namespace Raven.Server.Documents.Handlers
 
             using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                if (isLoadStartingWith)
-                {
-                    writer.WriteStartObject();
-                    writer.WritePropertyName(nameof(GetDocumentResult.Results));
-                }
-
                 if (transformer != null)
                 {
                     var transformerParameters = GetTransformerParameters(context);
 
-                    using (var scope = transformer.OpenTransformationScope(transformerParameters, null, Database.DocumentsStorage,
+                    using (
+                        var scope = transformer.OpenTransformationScope(transformerParameters, null, Database.DocumentsStorage,
                             Database.TransformerStore, context))
                     {
-                        writer.WriteDocuments(context, scope.Transform(documents).ToList(), metadataOnly);
+                        writer.WriteDocuments(context, scope.Transform(documents), metadataOnly);
+                        return;
                     }
                 }
-                else
-                {
-                    writer.WriteDocuments(context, documents, metadataOnly);
-                }
-                
-                if (isLoadStartingWith)
-                    writer.WriteEndObject();
+
+                writer.WriteDocuments(context, documents, metadataOnly);
             }
         }
 
