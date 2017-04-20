@@ -1,7 +1,4 @@
-
-<div data-bind="compose: 'common/sectionUnderDevelopment.html'"></div>
-
-<div id="periodicExportPage" class="content-margin">
+<section class="content-margin versioning">
     <div data-bind="visible: isForbidden" class="text-center">
         <h4 class="page-header text-info">You are not authorized to view this page!</h4>
     </div>
@@ -10,16 +7,166 @@
         <div class="alert alert-danger">Too many periodic export types found. This isn't a supported scenario for the UI.</div>
     </div>
 
-    <div data-bind="visible: !backupSetup().unsupported() && !isForbidden(), with: backupSetup">
-        <form data-bind="submit: $root.saveChanges.bind($root)" id="save-periodic-backup-form" class="form-horizontal" role="form">
-
-            <div class="panel panel-default">
-                <div class="panel-heading">
-                    <button type="submit" class="btn btn-primary" title="Save Changes(Alt+S)" data-bind="enable: $root.isSaveEnabled()" accesskey="S"><i class="icon-save"></i></button>
+    <div data-bind="visible: !backupSetup().unsupported() && !isForbidden()">
+        <form class="form-horizontal save-periodic-backup-form" role="form" data-bind="submit: saveChanges">
+            <div class="margin-bottom">
+                <button type="submit" class="btn btn-primary" title="Save Changes" data-bind="enable: isSaveEnabled, css: { 'btn-spinner': spinners.save() }">
+                    <i class="icon-save"></i> <span>Save</span>
+                </button>
+            </div>
+            
+        <div class="panel panel-default" data-bind="with: backupSetup">
+            <div class="panel-body">
+                <div class="row">
+                    <div class="col-sm-2">
+                        <div class="toggle">
+                            <input id="enbale-periodic-export" class="styled" type="checkbox" data-bind="checked: active">
+                            <label for="enbale-periodic-export">
+                                Enable
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-sm-2">
+                        <div class="input-group">
+                            <span class="input-group-addon">Incremental Interval</span>
+                            <input type="number" class="form-control" placeholder="0" data-bind="enable: active, numericValue: incrementalExportInterval, valueUpdate: 'afterkeydown'">
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio1" value="option1" name="radioInline" data-bind="checked: incrementalExportIntervalUnit, enable: active">
+                            <label for="inlineRadio1">Minutes</label>
+                        </div>
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio2" value="option2" name="radioInline" data-bind="checked: incrementalExportIntervalUnit, enable: active">
+                            <label for="inlineRadio2">Hours</label>
+                        </div>
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio3" value="option3" name="radioInline" data-bind="checked: incrementalExportIntervalUnit, enable: active">
+                            <label for="inlineRadio3">Days</label>
+                        </div>
+                    </div>
                 </div>
+                <br/>
+                <div class="row">
+                    <div class="col-sm-offset-2 col-sm-2">
+                        <div class="input-group">
+                            <span class="input-group-addon">Incremental Interval</span>
+                            <input type="number" class="form-control" placeholder="0" data-bind="enable: active, numericValue: fullExportInterval, valueUpdate: 'afterkeydown'">
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio4" value="option1" name="radioInline" data-bind="checked: fullExportIntervalUnit, enable: active">
+                            <label for="inlineRadio4">Minutes</label>
+                        </div>
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio5" value="option2" name="radioInline" data-bind="checked: fullExportIntervalUnit, enable: active">
+                            <label for="inlineRadio5">Hours</label>
+                        </div>
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio6" value="option3" name="radioInline" data-bind="checked: fullExportIntervalUnit, enable: active">
+                            <label for="inlineRadio6">Days</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!--<div class="panel panel-info" data-bind="with: backupSetup">
+            <div class="panel-body">
+                <div class="row">
+                    <div class="col-sm-2">
+                        <div class="toggle">
+                            <input id="enbale-disk-export" class="styled" type="checkbox" data-bind="checked: onDiskExportEnabled">
+                            <label for="enbale-disk-export">
+                                Local Export
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-sm-2">
+                        <div class="input-group">
+                            <span class="input-group-addon">Incremental Interval</span>
+                            <input type="number" class="form-control" placeholder="0" data-bind="enable: onDiskExportEnabled, numericValue: incrementalExportInterval, valueUpdate: 'afterkeydown'">
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio1" value="option1" name="radioInline" data-bind="checked: incrementalExportIntervalUnit, enable: onDiskExportEnabled">
+                            <label for="inlineRadio1">Minutes</label>
+                        </div>
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio2" value="option2" name="radioInline" data-bind="checked: incrementalExportIntervalUnit, enable: onDiskExportEnabled">
+                            <label for="inlineRadio2">Hours</label>
+                        </div>
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio3" value="option3" name="radioInline" data-bind="checked: incrementalExportIntervalUnit, enable: onDiskExportEnabled">
+                            <label for="inlineRadio3">Days</label>
+                        </div>
+                    </div>
+                </div>
+                <br/>
+                <div class="row">
+                    <div class="col-sm-offset-2 col-sm-2">
+                        <div class="input-group">
+                            <span class="input-group-addon">Incremental Interval</span>
+                            <input type="number" class="form-control" placeholder="0" data-bind="enable: onDiskExportEnabled, numericValue: fullExportInterval, valueUpdate: 'afterkeydown'">
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio1" value="option1" name="radioInline" data-bind="checked: fullExportIntervalUnit, enable: onDiskExportEnabled">
+                            <label for="inlineRadio1">Minutes</label>
+                        </div>
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio2" value="option2" name="radioInline" data-bind="checked: fullExportIntervalUnit, enable: onDiskExportEnabled">
+                            <label for="inlineRadio2">Hours</label>
+                        </div>
+                        <div class="radio radio-inline">
+                            <input type="radio" id="inlineRadio3" value="option3" name="radioInline" data-bind="checked: fullExportIntervalUnit, enable: onDiskExportEnabled">
+                            <label for="inlineRadio3">Days</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>-->
+            
+        <!--<div class="form-group">
+            <label for="incrementalExportInterval" class="col-sm-4 control-label">Incremental Export Interval:</label>
+            <div class="col-sm-1">
+                <input id="incrementalBackupInterval" required type="number" class="form-control" min="0" data-bind="numericValue: incrementalExportInterval" />
+            </div>
+            <div class="col-sm-3">
+                <select class="form-control" data-bind="options: availableIntervalUnits, value: incrementalExportIntervalUnit"></select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="fullExportInterval" class="col-sm-4 control-label">Full Export Interval:</label>
+            <div class="col-sm-1">
+                <input id="fullBackupInterval" required type="number" class="form-control" min="0" data-bind="numericValue: fullExportInterval" />
+            </div>
+            <div class="col-sm-3">
+                <select class="form-control" data-bind="options: availableIntervalUnits, value: fullExportIntervalUnit"></select>
+            </div>
+        </div>-->
+            
+
+        <!--<div class="panel panel-default">
+                $1$<div class="panel-heading">
+                    <button type="submit" class="btn btn-primary" title="Save Changes(Alt+S)" data-bind="enable: $root.isSaveEnabled()" accesskey="S"><i class="icon-save"></i></button>
+                </div>#1#
                 <div class="panel-body">
-                    <div class="form-group">
-                        <label for="disabled" class="col-sm-4 control-label">Enabled:</label>
+                    <div class="enable-periodic-export">
+                        <div class="toggle">
+                            <input id="toggle1" type="checkbox" data-bind="checked: active">
+                            <label for="toggle1">
+                                Enable
+                            </label>
+                        </div>
+                    </div>
+                        
+
+                        $1$<label for="disabled" class="col-sm-4 control-label">Enabled:</label>
                         <div class="col-sm-4">
                             <div class="btn-group">
                                 <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
@@ -32,18 +179,17 @@
                                     <li><a href="#" data-bind="click: active.bind(active, false)">No</a></li>
                                 </ul>
                             </div>
-                            <p class="text-info" data-bind="visible: $root.exportDisabled">
+                            $2$<p class="text-info" data-bind="visible: $root.exportDisabled">
                                 <small><i class="icon-info"></i></small> Periodic Export is currently deactivated.
-                            </p>
-                        </div>
-                    </div>
+                            </p>#2#
+                        </div>#1#
 
                     <div id="periodicExportContainer">
                         <div class="form-group">
                             <label for="onDiskExport" class="col-sm-4 control-label">On disk export:</label>
                             <div class="col-sm-4">
                                 <div class="btn-group">
-                                    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" data-bind="enable: false">
+                                    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
                                         <span data-bind="visible: onDiskExportEnabled">Yes</span>
                                         <span data-bind="visible: !onDiskExportEnabled()">No</span>
                                         <span class="caret"></span>
@@ -60,12 +206,11 @@
                             <label for="onDiskLocation" class="col-sm-4 control-label">File System Folder:</label>
                             <div class="col-sm-4" >
                                 <div data-bind="visible: onDiskExportEnabled">
-                                    <input type="text" id="onDiskLocation" placeholder="full path" required class="form-control" data-bind="value: localFolderName, valueUpdate: 'afterkeydown'" />    
+                                    <input type="text" id="onDiskLocation" placeholder="full path" required class="form-control" data-bind="value: localFolderName" />    
                                 </div>
                             </div>
                         </div>
-                        <!-- TODO: add support for remote upload -->
-                        <!--
+                        $1$ TODO: add support for remote upload #1#
                         <div class="form-group">
                             <label for="serverUpload" class="col-sm-4 control-label">Upload to remote server:</label>
                             <div class="col-sm-4">
@@ -82,14 +227,13 @@
                                 </div>
                             </div>
                         </div>
-                        -->
 
                         <div class="form-group" data-bind="if: remoteUploadEnabled, visible: remoteUploadEnabled">
                             <div class="col-sm-4">
                                 <select class="form-control" data-bind="options: availablePeriodicExports, optionsText: 'label', optionsValue: 'value', value: type"></select>
                             </div>
                             <div class="col-sm-4">
-                                <input type="text" required class="form-control" data-bind="value: mainValue, customValidity: mainValueCustomValidity, valueUpdate: 'afterkeydown', attr: { placeholder: mainPlaceholder }"/>
+                                <input type="text" required class="form-control" data-bind="validationElement: mainValue, attr: { placeholder: mainPlaceholder }"/>
                                 <div data-bind="visible: isGlaceirVault">
                                     <a target="_blank" href="http://docs.aws.amazon.com/amazonglacier/latest/dev/creating-vaults.html">Vault Name Restrictions and Limitations</a>
                                 </div>
@@ -101,19 +245,19 @@
                         <div class="form-group" data-bind="if: isS3Bucket, visible: isS3Bucket">
                             <label for="awsRemoteFolder" class="col-sm-4 control-label">Folder name:</label>
                             <div class="col-sm-4">
-                                <input id="awsRemoteFolder" type="text" placeholder="Remote folder name" class="form-control" data-bind="value: s3RemoteFolderName, valueUpdate: 'afterkeydown'" />
+                                <input id="awsRemoteFolder" type="text" placeholder="Remote folder name" class="form-control" data-bind="value: s3RemoteFolderName" />
                             </div>
                         </div>
                         <div class="form-group" data-bind="if: additionalAwsInfoRequired, visible: additionalAwsInfoRequired">
                             <label for="awsAccessKey" class="col-sm-4 control-label">AWS Access Key:</label>
                             <div class="col-sm-4">
-                                <input required id="awsAccessKey" type="text" class="form-control" data-bind="value: awsAccessKey, valueUpdate: 'afterkeydown'"/>
+                                <input required id="awsAccessKey" type="text" class="form-control" data-bind="value: awsAccessKey"/>
                             </div>
                         </div>
                         <div class="form-group" data-bind="if: additionalAwsInfoRequired, visible: additionalAwsInfoRequired">
                             <label for="awsSecretKey" class="col-sm-4 control-label">AWS Secret Key:</label>
                             <div class="col-sm-3">
-                                <input required id="awsSecretKey" type="password" autocomplete="off" class="form-control" data-bind="value: awsSecretKey, valueUpdate: 'afterkeydown'"/>
+                                <input required id="awsSecretKey" type="password" autocomplete="off" class="form-control" data-bind="value: awsSecretKey"/>
                             </div>
                             <div class="col-sm-1 control-label" style="text-align: left" data-bind="if: awsSecretKeyDecryptionFailed">
                                 <span id="awsDecryptFailureSpan" class="help-cursor" data-placement="auto right" data-original-title="Why this input is empty?" data-trigger="hover">
@@ -131,19 +275,19 @@
                             <div class="form-group">
                                 <label for="remoteFolder" class="col-sm-4 control-label">Folder name:</label>
                                 <div class="col-sm-4">
-                                    <input id="remoteFolder" type="text" placeholder="Remote folder name" class="form-control" data-bind="value: azureRemoteFolderName, valueUpdate: 'afterkeydown'"/>
+                                    <input id="remoteFolder" type="text" placeholder="Remote folder name" class="form-control" data-bind="value: azureRemoteFolderName"/>
                                 </div>
                             </div>
                             <div class="form-group">
                                 <label for="azureStorageAccount" class="col-sm-4 control-label">Azure Storage Account:</label>
                                 <div class="col-sm-4">
-                                    <input required id="azureStorageAccount" type="text" class="form-control" data-bind="value: azureStorageAccount, valueUpdate: 'afterkeydown'"/>
+                                    <input required id="azureStorageAccount" type="text" class="form-control" data-bind="value: azureStorageAccount"/>
                                 </div>
                             </div>
                             <div class="form-group">
                                 <label for="azureStorageKey" class="col-sm-4 control-label">Azure Storage Key:</label>
                                 <div class="col-sm-3">
-                                    <input required id="azureStorageKey" type="password" autocomplete="off" class="form-control" data-bind="value: azureStorageKey, valueUpdate: 'afterkeydown'"/>
+                                    <input required id="azureStorageKey" type="password" autocomplete="off" class="form-control" data-bind="value: azureStorageKey"/>
                                 </div>
                                 <div class="col-sm-1 control-label" style="text-align: left" data-bind="if: azureStorageKeyDecryptionFailed">
                                     <span id="azureDecryptFailureSpan" class="help-cursor" data-placement="auto right" data-original-title="Why this input is empty?" data-trigger="hover">
@@ -153,27 +297,10 @@
                             </div>
                         </div>
 
-                        <div class="form-group">
-                            <label for="incrementalBackupInterval" class="col-sm-4 control-label">Incremental Export Interval:</label>
-                            <div class="col-sm-1">
-                                <input id="incrementalBackupInterval" required type="number" class="form-control" min="0" data-bind="numericValue: incrementalBackupInterval, valueUpdate: 'afterkeydown'" />
-                            </div>
-                            <div class="col-sm-3">
-                                <select class="form-control" data-bind="options: availableIntervalUnits, value: incrementalBackupIntervalUnit"></select>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="fullBackupInterval" class="col-sm-4 control-label">Full Export Interval:</label>
-                            <div class="col-sm-1">
-                                <input id="fullBackupInterval" required type="number" class="form-control" min="0" data-bind="numericValue: fullBackupInterval, valueUpdate: 'afterkeydown'" />
-                            </div>
-                            <div class="col-sm-3">
-                                <select class="form-control" data-bind="options: availableIntervalUnits, value: fullBackupIntervalUnit"></select>
-                            </div>
-                        </div>
+                        
                     </div>
                 </div>
-            </div>
+            </div>-->
         </form>
     </div>
-</div>
+</section>

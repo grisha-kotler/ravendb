@@ -1,4 +1,5 @@
 /// <reference path="../../../../typings/tsd.d.ts"/>
+type availableIntervalUnits = "minutes" | "hours" | "days";
 
 class periodicExportSetup {
 
@@ -15,7 +16,7 @@ class periodicExportSetup {
     type = ko.observable<string>();
     mainValue = ko.observable<string>();
 
-    mainValueCustomValidity: KnockoutObservable<string>;
+    //mainValueCustomValidity: KnockoutObservable<string>;
 
     azureRemoteFolderName = ko.observable<string>();
     s3RemoteFolderName = ko.observable<string>();
@@ -30,26 +31,24 @@ class periodicExportSetup {
     azureStorageAccount = ko.observable<string>();
     azureStorageKey = ko.observable<string>();
 
-    incrementalBackupInterval = ko.observable<number>();
-    incrementalBackupIntervalUnit = ko.observable<string>();
+    incrementalExportInterval = ko.observable<number>();
+    incrementalExportIntervalUnit = ko.observable<availableIntervalUnits>("minutes");
 
-    fullBackupInterval = ko.observable<number>();
-    fullBackupIntervalUnit = ko.observable<string>();
+    fullExportInterval = ko.observable<number>();
+    fullExportIntervalUnit = ko.observable<availableIntervalUnits>("minutes");
 
     private dbSettingsDto: documentDto;
 
     private GLACIER_VAULT = "glacierVault";
     private S3_BUCKET = "s3bucket";
     private AZURE_STORAGE = "azureStorage";
-    private TU_MINUTES = "minutes";
-    private TU_HOURS = "hours";
-    private TU_DAYS = "days";
 
     availablePeriodicExports = [
         { label: "Glacier Vault Name:", value: this.GLACIER_VAULT },
         { label: "S3 Bucket Name:", value: this.S3_BUCKET },
         { label: "Azure Storage Container:", value: this.AZURE_STORAGE }
     ];
+
     availableAwsRegionEndpoints = [
         { label: "US East (Virginia)", value: "us-east-1" },
         { label: "US East (Ohio)", value: "us-east-2" },
@@ -64,7 +63,8 @@ class periodicExportSetup {
         { label: "Asia Pacific (Mumbai)", value: "ap-south-1" },
         { label: "South America (São Paulo)", value: "sa-east-1" }
     ];
-    availableIntervalUnits = [this.TU_MINUTES, this.TU_HOURS, this.TU_DAYS];
+
+    //availableIntervalUnits = [this.TU_MINUTES, this.TU_HOURS, this.TU_DAYS];
 
     mainPlaceholder = ko.computed(() => {
         switch(this.type()) {
@@ -93,7 +93,9 @@ class periodicExportSetup {
     }, this);
 
     constructor() {
-        this.mainValueCustomValidity = ko.computed(() => {
+        this.setupValidation();
+
+        /*this.mainValueCustomValidity = ko.computed(() => {
             var mainValue = this.mainValue();
             switch (this.type()) {
                 case this.GLACIER_VAULT:
@@ -105,6 +107,34 @@ class periodicExportSetup {
             }
 
             return "";
+        });*/
+    }
+
+    private setupValidation() {
+        const mainValueValidator = (mainValue: string) => {
+            switch (this.type()) {
+                case this.GLACIER_VAULT:
+                    return this.validateGlacierVaultName(mainValue);
+                case this.S3_BUCKET:
+                    return this.validateS3Bucket(mainValue);
+                case this.AZURE_STORAGE:
+                    return this.validateAzureContainerNAme(mainValue);
+            }
+
+            return "Unrecognized Storage Container!";
+        }
+
+        var errorMessage = ko.observable<string>();
+        this.mainValue.extend({
+            required: true,
+            validation: [{
+                validator: (mainValue: string) => {
+                    var error = mainValueValidator(mainValue);
+                    errorMessage(error);
+                    return !error;
+                },
+                message: () => errorMessage()
+            }]
         });
     }
 
@@ -123,7 +153,7 @@ class periodicExportSetup {
             return "Allowed characters are a-z, A-Z, 0-9, '_' (underscore), '-' (hyphen), and '.' (period).";
         }
 
-        return "";
+        return null;
     }
 
     /*
@@ -177,7 +207,7 @@ class periodicExportSetup {
             return "Bucket name must not be formatted as an IP address (e.g., 192.168.5.4).";
         }
 
-        return "";
+        return null;
     }
 
     /*
@@ -206,7 +236,7 @@ class periodicExportSetup {
             return "Consecutive dashes are not permitted in container names";
         }
 
-        return "";
+        return null;
     }
 
     fromDto(dto: Raven.Server.Documents.PeriodicExport.PeriodicExportConfiguration) {
@@ -217,13 +247,13 @@ class periodicExportSetup {
 
             this.s3RemoteFolderName(dto.S3RemoteFolderName);
             this.azureRemoteFolderName(dto.AzureRemoteFolderName);
-            var incr = this.prepareBackupInterval(dto.IntervalMilliseconds);
-            this.incrementalBackupInterval(incr[0]);
-            this.incrementalBackupIntervalUnit(incr[1]);
+            const incr = this.prepareBackupInterval(dto.IntervalMilliseconds);
+            this.incrementalExportInterval(incr[0]);
+            this.incrementalExportIntervalUnit(incr[1]);
 
-            var full = this.prepareBackupInterval(dto.FullExportIntervalMilliseconds);
-            this.fullBackupInterval(full[0]);
-            this.fullBackupIntervalUnit(full[1]);
+            const full = this.prepareBackupInterval(dto.FullExportIntervalMilliseconds);
+            this.fullExportInterval(full[0]);
+            this.fullExportIntervalUnit(full[1]);
 
             this.active(dto.Active);
         }
@@ -239,8 +269,8 @@ class periodicExportSetup {
             LocalFolderName: this.onDiskExportEnabled() ? this.localFolderName() : null,
             S3RemoteFolderName: this.isS3Bucket() ? this.s3RemoteFolderName() : null,
             AzureRemoteFolderName: this.additionalAzureInfoRequired() ? this.azureRemoteFolderName() : null,
-            IntervalMilliseconds: this.convertToMilliseconds(this.incrementalBackupInterval(), this.incrementalBackupIntervalUnit()),
-            FullExportIntervalMilliseconds: this.convertToMilliseconds(this.fullBackupInterval(), this.fullBackupIntervalUnit())
+            IntervalMilliseconds: this.convertToMilliseconds(this.incrementalExportInterval(), this.incrementalExportIntervalUnit()),
+            FullExportIntervalMilliseconds: this.convertToMilliseconds(this.fullExportInterval(), this.fullExportIntervalUnit())
         };
     }
 
@@ -248,14 +278,14 @@ class periodicExportSetup {
         return ((this.type() === expectedType && this.remoteUploadEnabled()) ? this.mainValue() : null);
     }
 
-    private convertToMilliseconds(value: number, unit: string): number {
+    private convertToMilliseconds(value: number, unit: availableIntervalUnits): number {
         if (value && unit) {
             switch (unit) {
-                case this.TU_MINUTES:
+                case "minutes":
                     return value * 1000 * 60;
-                case this.TU_HOURS:
+                case "hours":
                     return value * 1000 * 60 * 60;
-                case this.TU_DAYS:
+                case "days":
                     return value * 1000 * 60 * 60 * 24;
             }
         }
@@ -346,7 +376,7 @@ class periodicExportSetup {
         this.unsupported(count > 1);
     }
 
-    private prepareBackupInterval(milliseconds: number):[number, string] {
+    private prepareBackupInterval(milliseconds: number):[number, availableIntervalUnits] {
         if (milliseconds) {
             var seconds = milliseconds / 1000;
             var minutes = seconds / 60;
@@ -354,13 +384,13 @@ class periodicExportSetup {
             if (this.isValidTimeValue(hours)) {
                 var days = hours / 24;
                 if (this.isValidTimeValue(days)) {
-                    return [days, this.TU_DAYS];
+                    return [days, "days"];
                 }
-                return [hours, this.TU_HOURS];
+                return [hours, "hours"];
             }
-            return [minutes, this.TU_MINUTES];
+            return [minutes, "minutes"];
         }
-        return [0, this.TU_MINUTES];
+        return [0, "minutes"];
     }
 
     private isValidTimeValue(value: number): boolean {
@@ -386,11 +416,11 @@ class periodicExportSetup {
         this.azureStorageKey(from.azureStorageKey());
         this.azureRemoteFolderName(from.azureRemoteFolderName());
 
-        this.incrementalBackupInterval(from.incrementalBackupInterval());
-        this.incrementalBackupIntervalUnit(from.incrementalBackupIntervalUnit());
+        this.incrementalExportInterval(from.incrementalExportInterval());
+        this.incrementalExportIntervalUnit(from.incrementalExportIntervalUnit());
 
-        this.fullBackupInterval(from.fullBackupInterval());
-        this.fullBackupIntervalUnit(from.fullBackupIntervalUnit());
+        this.fullExportInterval(from.fullExportInterval());
+        this.fullExportIntervalUnit(from.fullExportIntervalUnit());
     }
 }
 

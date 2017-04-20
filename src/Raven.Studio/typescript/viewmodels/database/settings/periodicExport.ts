@@ -19,10 +19,36 @@ class periodicExport extends viewModelBase {
 
     activeDatabaseSubscription: KnockoutSubscription;
 
+    spinners = {
+        save: ko.observable<boolean>(false)
+    }
+
     constructor() {
         super();
         this.activeDatabaseSubscription = this.activeDatabase.subscribe((db: database) => this.isForbidden(!db || !db.isAdminCurrentTenant()));
         this.showOnDiskExportRow = ko.computed(() => this.backupSetup() && this.backupSetup().onDiskExportEnabled());
+    }
+
+    canActivate(args: any): any {
+        super.canActivate(args);
+        this.backupSetup(new periodicExportSetup());
+
+        var deferred = $.Deferred();
+
+        const db = this.activeDatabase();
+        this.isForbidden(!db.isAdminCurrentTenant());
+        if (db.isAdminCurrentTenant()) {
+            $.when(this.fetchPeriodicExportSetup(db), this.fetchPeriodicExportAccountsSettings(db))
+                .done(() => {
+                    this.updateExportDisabledFlag();
+                    deferred.resolve({ can: true });
+                })
+                .fail(() => deferred.resolve({ redirect: appUrl.forDatabaseSettings(this.activeDatabase()) }));
+        } else {
+            deferred.resolve({ can: true });
+        }
+
+        return deferred;
     }
 
     attached() {
@@ -50,28 +76,6 @@ class periodicExport extends viewModelBase {
         });
     }
 
-    canActivate(args: any): any {
-        super.canActivate(args);
-        this.backupSetup(new periodicExportSetup);
-
-        var deferred = $.Deferred();
-
-        var db = this.activeDatabase();
-        this.isForbidden(!db.isAdminCurrentTenant());
-        if (db.isAdminCurrentTenant()) {
-            $.when(this.fetchPeriodicExportSetup(db), this.fetchPeriodicExportAccountsSettings(db))
-                .done(() => {
-                    this.updateExportDisabledFlag();
-                    deferred.resolve({ can: true });
-                })
-                .fail(() => deferred.resolve({ redirect: appUrl.forDatabaseSettings(this.activeDatabase()) }));
-        } else {
-            deferred.resolve({ can: true });
-        }
-
-        return deferred;
-    }
-
     activate(args: any) {
         super.activate(args);
         this.updateHelpLink("OU78CB");
@@ -79,12 +83,13 @@ class periodicExport extends viewModelBase {
         this.dirtyFlag = new ko.DirtyFlag([this.backupSetup]);
 
         var self = this;
-        this.isSaveEnabled = ko.computed(() => {
-            var onDisk = self.backupSetup().onDiskExportEnabled();
-            var remote = self.backupSetup().remoteUploadEnabled();
-            var hasAnyOption = onDisk || remote;
-            var isDirty = this.dirtyFlag().isDirty();
-            return hasAnyOption && isDirty;
+        this.isSaveEnabled = ko.pureComputed<boolean>(() => {
+            const onDisk = self.backupSetup().onDiskExportEnabled();
+            const remote = self.backupSetup().remoteUploadEnabled();
+            const hasAnyOption = onDisk || remote;
+            const isDirty = this.dirtyFlag().isDirty();
+            const saving = this.spinners.save();
+            return hasAnyOption && isDirty && !saving;
         });
     }
 
@@ -136,31 +141,28 @@ class periodicExport extends viewModelBase {
 
     saveChanges() {
         eventsCollector.default.reportEvent("periodic-export", "save");
-        var db = this.activeDatabase();
-        if (db) {
 
-            const periodicExportConfig = this.backupSetup().toDto();
+        const periodicExportConfig = this.backupSetup().toDto();
 
-            new saveDocumentCommand("Raven/PeriodicExport/Configuration",
-                    new document(periodicExportConfig),
-                    this.activeDatabase())
-                .execute()
-                .done(() => {
-                    this.backupSetup().resetDecryptionFailures();
-                    this.dirtyFlag().reset();
-                    this.updateExportDisabledFlag();
-                });
-            /* TODO:
-            var task: JQueryPromise<any>;
-            task = new savePeriodicExportSetupCommand(this.backupSetup(), db).execute();
-            task.done((resultArray) => {
-                var newEtag = resultArray[0].ETag;
-                this.backupSetup().setEtag(newEtag);
+        new saveDocumentCommand("Raven/PeriodicExport/Configuration",
+                new document(periodicExportConfig),
+                this.activeDatabase())
+            .execute()
+            .done(() => {
                 this.backupSetup().resetDecryptionFailures();
-                this.dirtyFlag().reset(); // Resync changes
+                this.dirtyFlag().reset();
                 this.updateExportDisabledFlag();
-            });*/
-        }
+            });
+        /* TODO:
+        var task: JQueryPromise<any>;
+        task = new savePeriodicExportSetupCommand(this.backupSetup(), db).execute();
+        task.done((resultArray) => {
+            var newEtag = resultArray[0].ETag;
+            this.backupSetup().setEtag(newEtag);
+            this.backupSetup().resetDecryptionFailures();
+            this.dirtyFlag().reset(); // Resync changes
+            this.updateExportDisabledFlag();
+        });*/
     }
 
     updateExportDisabledFlag() {

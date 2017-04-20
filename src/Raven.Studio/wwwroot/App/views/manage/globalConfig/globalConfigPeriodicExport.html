@@ -159,19 +159,19 @@
                         <div class="form-group">
                             <label for="incrementalBackupInterval" class="col-sm-3 control-label">Incremental Backup Interval:</label>
                             <div class="col-sm-1">
-                                <input id="incrementalBackupInterval" required type="number" class="form-control" min="0" data-bind="numericValue: incrementalBackupInterval, valueUpdate: 'afterkeydown', disable: $root.settingsAccess.isReadOnly()"/>
+                                <input id="incrementalBackupInterval" required type="number" class="form-control" min="0" data-bind="numericValue: incrementalExportInterval, valueUpdate: 'afterkeydown', disable: $root.settingsAccess.isReadOnly()"/>
                             </div>
                             <div class="col-sm-2">
-                                <select class="form-control" data-bind="options: availableIntervalUnits, value: incrementalBackupIntervalUnit, disable: $root.settingsAccess.isReadOnly()"></select>
+                                <select class="form-control" data-bind="options: availableIntervalUnits, value: incrementalExportIntervalUnit, disable: $root.settingsAccess.isReadOnly()"></select>
                             </div>
                         </div>
                         <div class="form-group">
                             <label for="fullBackupInterval" class="col-sm-3 control-label">Full Backup Interval:</label>
                             <div class="col-sm-1">
-                                <input id="fullBackupInterval" required type="number" class="form-control" min="0" data-bind="numericValue: fullBackupInterval, valueUpdate: 'afterkeydown', disable: $root.settingsAccess.isReadOnly()"/>
+                                <input id="fullBackupInterval" required type="number" class="form-control" min="0" data-bind="numericValue: fullExportInterval, valueUpdate: 'afterkeydown', disable: $root.settingsAccess.isReadOnly()"/>
                             </div>
                             <div class="col-sm-2">
-                                <select class="form-control" data-bind="options: availableIntervalUnits, value: fullBackupIntervalUnit, disable: $root.settingsAccess.isReadOnly()"></select>
+                                <select class="form-control" data-bind="options: availableIntervalUnits, value: fullExportIntervalUnit, disable: $root.settingsAccess.isReadOnly()"></select>
                             </div>
                         </div>
                     </div>
