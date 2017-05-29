@@ -25,8 +25,9 @@ using Raven.Server.NotificationCenter.Notifications.Server;
 using Raven.Server.ServerWide.Commands;
 using Raven.Server.ServerWide.Commands.PeriodicBackup;
 using Raven.Server.ServerWide.Context;
-using Raven.Server.ServerWide.Maintance;
+using Raven.Server.ServerWide.Maintenance;
 using Raven.Server.Utils;
+using Raven.Server.Web.System;
 using Sparrow;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
@@ -122,7 +123,7 @@ namespace Raven.Server.ServerWide
             return ClusterMaintenanceSupervisor?.GetStats();
         }
 
-        public async Task ClusterMaintanceSetupTask()
+        public async Task ClusterMaintenanceSetupTask()
         {
             while (true)
             {
@@ -332,7 +333,7 @@ namespace Raven.Server.ServerWide
                 }
             }
 
-            Task.Run(ClusterMaintanceSetupTask, ServerShutdown);
+            Task.Run(ClusterMaintenanceSetupTask, ServerShutdown);
         }
 
         private void OnTopologyChanged(object sender, ClusterTopology topologyJson)
@@ -534,6 +535,15 @@ namespace Raven.Server.ServerWide
             return await SendToLeaderAsync(watcherCommand);
         }
 
+        public async Task<(long, BlittableJsonReaderObject)> UpdateDatabaseWatcher(string dbName, DatabaseWatcher watcher)
+        {
+            var addWatcherCommand = new UpdateDatabaseWatcherCommand(dbName)
+            {
+                Watcher = watcher
+            };
+            return await SendToLeaderAsync(addWatcherCommand);
+        }
+
         public async Task<(long, BlittableJsonReaderObject)> ModifyConflictSolverAsync(string dbName, ConflictSolver solver)
         {
             var conflictResolverCommand = new ModifyConflictSolverCommand(dbName)
@@ -733,13 +743,13 @@ namespace Raven.Server.ServerWide
             return ((now - maxLastWork).TotalMinutes > 5) || ((now - database.LastIdleTime).TotalMinutes > 10);
         }
 
-        public async Task<(long, BlittableJsonReaderObject)> WriteDbAsync(string databaseName, BlittableJsonReaderObject databaseRecord, long? etag, bool encrypted = false)
+
+        public async Task<(long etag, BlittableJsonReaderObject result)> WriteDbAsync(string databaseName, BlittableJsonReaderObject databaseRecord, long? etag)
         {
-            var addDatabaseCommand = new AddDatabaseCommand()
+            var addDatabaseCommand = new AddDatabaseCommand
             {
                 Name = databaseName,
                 Etag = etag,
-                Encrypted = encrypted,
                 Record = databaseRecord
             };
             return await SendToLeaderAsync(addDatabaseCommand);
@@ -749,8 +759,28 @@ namespace Raven.Server.ServerWide
         {
             if (_engine.CurrentState == RachisConsensus.State.Passive)
             {
-                _engine.Bootstarp(_ravenServer.WebUrls[0]);
+                _engine.Bootstarp(EnsureValidExternalUrl(_ravenServer.WebUrls[0]));
             }
+        }
+        
+        
+        public static string EnsureValidExternalUrl(string url)
+        {
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                switch (uri.Host)
+                {
+                    case "::":
+                    case "::0":
+                    case "0.0.0.0":
+                        url = new UriBuilder(uri)
+                        {
+                            Host = Environment.MachineName
+                        }.Uri.ToString();
+                        break;
+                }
+            }
+            return url.TrimEnd('/');
         }
 
         public Task<(long, BlittableJsonReaderObject)> PutCommandAsync(BlittableJsonReaderObject cmd)
@@ -856,7 +886,7 @@ namespace Raven.Server.ServerWide
             return (command.Result.ETag, command.Result.Data);
         }
 
-        protected internal class PutRaftCommand : RavenCommand<PutRaftCommandResult>
+        private class PutRaftCommand : RavenCommand<PutRaftCommandResult>
         {
             private readonly JsonOperationContext _context;
             private readonly BlittableJsonReaderObject _command;
@@ -911,7 +941,7 @@ namespace Raven.Server.ServerWide
             return _engine.WaitForState(state);
         }
 
-        public void ClusterAcceptNewConnection(TcpClient client)
+        public void ClusterAcceptNewConnection(Stream client)
         {
             _engine.AcceptNewConnection(client);
         }

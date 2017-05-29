@@ -7,8 +7,10 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Raven.Client.Documents;
 using Raven.Client.Documents.Conventions;
 using Raven.Client.Documents.Session;
+using Raven.Client.Documents.Subscriptions;
 using Raven.Client.Exceptions.Cluster;
 using Raven.Client.Exceptions.Database;
 using Raven.Client.Exceptions.Security;
@@ -102,6 +104,7 @@ namespace Raven.Server.ServerWide
                 case nameof(ModifyConflictSolverCommand):
                 case nameof(UpdateTopologyCommand):
                 case nameof(DeleteDatabaseCommand):
+                case nameof(UpdateDatabaseWatcherCommand):
                     UpdateDatabase(context, type, cmd, index, leader);
                     break;
                 case nameof(UpdatePeriodicBackupStatusCommand):
@@ -182,6 +185,7 @@ namespace Raven.Server.ServerWide
         }
 
         private readonly RachisLogIndexNotifications _rachisLogIndexNotifications = new RachisLogIndexNotifications(CancellationToken.None);
+
         public async Task WaitForIndexNotification(long index)
         {
             await _rachisLogIndexNotifications.WaitForIndexNotification(index, _parent.RemoteOperationTimeout);
@@ -192,7 +196,8 @@ namespace Raven.Server.ServerWide
             var items = context.Transaction.InnerTransaction.OpenTable(ItemsSchema, Items);
             var remove = JsonDeserializationCluster.RemoveNodeFromDatabaseCommand(cmd);
             var databaseName = remove.DatabaseName;
-            using (Slice.From(context.Allocator, "db/" + databaseName.ToLowerInvariant(), out Slice lowerKey))
+            var databaseNameLowered = databaseName.ToLowerInvariant();
+            using (Slice.From(context.Allocator, "db/" + databaseNameLowered, out Slice lowerKey))
             using (Slice.From(context.Allocator, "db/" + databaseName, out Slice key))
             {
                 if (items.ReadByKey(lowerKey, out TableValueReader reader) == false)
@@ -216,7 +221,13 @@ namespace Raven.Server.ServerWide
                     databaseRecord.Topology.Promotables.Count == 0 &&
                     databaseRecord.Topology.Watchers.Count == 0)
                 {
+                    // delete database record
                     items.DeleteByKey(lowerKey);
+
+                    // delete all values linked to database record - for subscription, etl etc.
+                    CleanupDatabaseRelatedValues(context, items, databaseName);
+
+                    items.DeleteByPrimaryKeyPrefix(lowerKey);
                     NotifyDatabaseChanged(context, databaseName, index, nameof(RemoveNodeFromDatabaseCommand));
                     return;
                 }
@@ -226,6 +237,16 @@ namespace Raven.Server.ServerWide
                 UpdateValue(index, items, lowerKey, key, updated);
 
                 NotifyDatabaseChanged(context, databaseName, index, nameof(RemoveNodeFromDatabaseCommand));
+            }
+        }
+
+        private void CleanupDatabaseRelatedValues(TransactionOperationContext context, Table items, string dbNameLowered)
+        {
+            var subscriptionItemsPrefix = SubscriptionState.GenerateSubscriptionPrefix(dbNameLowered).ToLowerInvariant();
+            using (Slice.From(context.Allocator, subscriptionItemsPrefix, out Slice loweredKey))
+            {
+                
+                items.DeleteByPrimaryKeyPrefix(loweredKey);
             }
         }
 
@@ -629,11 +650,11 @@ namespace Raven.Server.ServerWide
 
             var tcpInfo = new Uri(info.Url);
             var tcpClient = new TcpClient();
-            NetworkStream stream = null;
+            Stream stream = null;
             try
             {
                 await tcpClient.ConnectAsync(tcpInfo.Host, tcpInfo.Port);
-                stream = tcpClient.GetStream();
+                stream = await TcpUtils.WrapStreamWithSslAsync(tcpClient, info);
 
                 using (ContextPoolForReadOnlyOperations.AllocateOperationContext(out JsonOperationContext context))
                 {
@@ -718,14 +739,15 @@ namespace Raven.Server.ServerWide
                 }
                 else if (timeoutTask == await Task.WhenAny(task, timeoutTask))
                 {
-                    ThrowTimeoutException(timeout.Value, index);
+                    ThrowTimeoutException(timeout.Value, index, _lastModifiedIndex);
                 }
             }
         }
 
-        private static void ThrowTimeoutException(TimeSpan value, long index)
+        private static void ThrowTimeoutException(TimeSpan value, long index, long lastModifiedIndex)
         {
-            throw new TimeoutException("Waited for " + value + " but didn't get index notification for " + index);
+            throw new TimeoutException($"Waited for {value} but didn't get index notification for {index}. " +
+                                       $"Last commit index is: {lastModifiedIndex}.");
         }
 
         public void NotifyListenersAbout(long index)

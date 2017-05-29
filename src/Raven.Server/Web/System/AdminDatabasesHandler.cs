@@ -34,6 +34,7 @@ using Sparrow.Json.Parsing;
 using Raven.Client.Http;
 using Raven.Client.Server.Operations;
 using Raven.Client.Server.PeriodicBackup;
+using Raven.Client.Http;
 
 namespace Raven.Server.Web.System
 {
@@ -123,7 +124,7 @@ namespace Raven.Server.Web.System
                 long etag;
                 var databaseRecord = ServerStore.Cluster.ReadDatabase(context, name, out etag);
                 var clusterTopology = ServerStore.GetClusterTopology(context);
-
+                
                 //The case where an explicit node was requested 
                 if (string.IsNullOrEmpty(node) == false)
                 {
@@ -133,7 +134,7 @@ namespace Raven.Server.Web.System
                     var url = clusterTopology.GetUrlFromTag(node);
                     if (url == null)
                         throw new InvalidOperationException($"Can't add node {node} to {name} topology because node {node} is not part of the cluster");
-
+                    
                     if (databaseRecord.Encrypted && NotUsingSsl(url))
                         throw new InvalidOperationException($"Can't add node {node} to database {name} topology because database {name} is encrypted but node {node} doesn't have an SSL certificate.");
 
