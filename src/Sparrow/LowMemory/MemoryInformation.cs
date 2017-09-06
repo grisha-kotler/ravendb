@@ -17,6 +17,7 @@ namespace Sparrow.LowMemory
         {
             AvailableMemory = new Size(256, SizeUnit.Megabytes),
             TotalPhysicalMemory = new Size(256, SizeUnit.Megabytes),
+            InstalledMemory = new Size(256, SizeUnit.Megabytes)
         };
 
         [StructLayout(LayoutKind.Sequential)]
@@ -37,6 +38,10 @@ namespace Sparrow.LowMemory
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern unsafe bool GlobalMemoryStatusEx(MemoryStatusEx* lpBuffer);
 
+        [return: MarshalAs(UnmanagedType.Bool)]
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool GetPhysicallyInstalledSystemMemory(out long totalMemoryInKb);
+
         /// <summary>
         /// This value is in MB
         /// </summary>
@@ -47,6 +52,15 @@ namespace Sparrow.LowMemory
             {
                 _memoryLimit = value;
             }
+        }
+
+        public static (long InstalledMemory, double UsableMemory) GetMemoryInfoInGb()
+        {
+            var memoryInformation = GetMemoryInfo();
+            var installedMemoryInGb = memoryInformation.InstalledMemory.GetValue(SizeUnit.Gigabytes);
+            var usableMemoryInBytes = memoryInformation.TotalPhysicalMemory.GetValue(SizeUnit.Bytes);
+            var usableMemoryInGb = usableMemoryInBytes / (double)1024 / 1024 / 1024;
+            return (installedMemoryInGb, usableMemoryInGb);
         }
 
         public static unsafe MemoryInfoResult GetMemoryInfo()
@@ -67,18 +81,22 @@ namespace Sparrow.LowMemory
                     {
                         dwLength = (uint)sizeof(MemoryStatusEx)
                     };
-                    var result = GlobalMemoryStatusEx(&memoryStatus);
-                    if (result == false)
+
+                    if (GlobalMemoryStatusEx(&memoryStatus) == false)
                     {
                         if (Logger.IsInfoEnabled)
                             Logger.Info("Failure when trying to read memory info from Windows, error code is: " + Marshal.GetLastWin32Error());
                         return FailedResult;
                     }
 
+                    if (GetPhysicallyInstalledSystemMemory(out var installedMemoryInKb) == false)
+                        installedMemoryInKb = (long)memoryStatus.ullTotalPhys;
+
                     return new MemoryInfoResult
                     {
                         AvailableMemory = new Size((long)memoryStatus.ullAvailPhys, SizeUnit.Bytes),
                         TotalPhysicalMemory = new Size((long)memoryStatus.ullTotalPhys, SizeUnit.Bytes),
+                        InstalledMemory = new Size(installedMemoryInKb, SizeUnit.Kilobytes)
                     };
                 }
 
@@ -151,7 +169,9 @@ namespace Sparrow.LowMemory
                 return new MemoryInfoResult
                 {
                     AvailableMemory = availableRam,
-                    TotalPhysicalMemory = totalPhysicalMemory
+                    TotalPhysicalMemory = totalPhysicalMemory,
+                    //TODO: http://issues.hibernatingrhinos.com/issue/RavenDB-8468
+                    InstalledMemory = totalPhysicalMemory
                 };
             }
             catch (Exception e)
@@ -176,6 +196,7 @@ namespace Sparrow.LowMemory
     public struct MemoryInfoResult
     {
         public Size TotalPhysicalMemory;
+        public Size InstalledMemory;
         public Size AvailableMemory;
     }
 }
