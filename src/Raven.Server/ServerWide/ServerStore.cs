@@ -26,6 +26,7 @@ using Raven.Client.ServerWide.Operations;
 using Raven.Client.ServerWide.Operations.Certificates;
 using Raven.Server.Commercial;
 using Raven.Server.Config;
+using Raven.Server.Dashboard;
 using Raven.Server.Documents;
 using Raven.Server.Documents.Operations;
 using Raven.Server.Json;
@@ -81,6 +82,7 @@ namespace Raven.Server.ServerWide
         private readonly RavenServer _server;
         public readonly DatabasesLandlord DatabasesLandlord;
         public readonly NotificationCenter.NotificationCenter NotificationCenter;
+        public readonly ServerDashboardNotifications ServerDashboardNotifications;
         public readonly LicenseManager LicenseManager;
         public readonly FeedbackSender FeedbackSender;
         public readonly SecretProtection Secrets;
@@ -106,6 +108,8 @@ namespace Raven.Server.ServerWide
             _notificationsStorage = new NotificationsStorage(ResourceName);
 
             NotificationCenter = new NotificationCenter.NotificationCenter(_notificationsStorage, ResourceName, ServerShutdown);
+
+            ServerDashboardNotifications = new ServerDashboardNotifications(this, ServerShutdown);
 
             _operationsStorage = new OperationsStorage();
 
