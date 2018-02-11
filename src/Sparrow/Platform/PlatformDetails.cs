@@ -14,13 +14,15 @@ namespace Sparrow.Platform
 
         public static readonly bool RunningOnMacOsx = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
 
+        public static readonly bool RunningOnLinux = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
+
         public static readonly bool CanPrefetch = IsWindows8OrNewer() || RunningOnPosix;
 
-        public static int GetCurrentThreadId()
+        public static ulong GetCurrentThreadId()
         {
             return RunningOnPosix ?
                     Syscall.gettid() :
-                    (int)Win32ThreadsMethods.GetCurrentThreadId();
+                    Win32ThreadsMethods.GetCurrentThreadId();
         }
 
         private static bool IsWindows8OrNewer()

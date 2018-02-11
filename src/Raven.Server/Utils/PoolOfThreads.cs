@@ -1,12 +1,16 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Sparrow.Binary;
 using Sparrow.Logging;
 using Sparrow.LowMemory;
 using Sparrow.Platform;
+using Sparrow.Platform.Posix;
 using Sparrow.Utils;
 
 namespace Raven.Server.Utils
@@ -92,7 +96,7 @@ namespace Raven.Server.Utils
                     Name = name,
                     IsBackground = true,
                 };
-
+                
                 thread.Start();
             }
             pooled.StartedAt = DateTime.UtcNow;
@@ -110,6 +114,7 @@ namespace Raven.Server.Utils
             private string _name;
             private PoolOfThreads _parent;
             private LongRunningWork _workIsDone;
+            private ulong _currentUnmangedThreadId;
             private ProcessThread _currentProcessThread;
             private Process _currentProcess;
 
@@ -202,10 +207,13 @@ namespace Raven.Server.Utils
 
             private bool ResetThreadAffinity()
             {
+                if (PlatformDetails.RunningOnMacOsx)
+                    return true;
+
                 try
                 {
                     _currentProcess.Refresh();
-                    _currentProcessThread.ProcessorAffinity = _currentProcess.ProcessorAffinity;
+                    SetThreadAffinityByPlatform(_currentProcess.ProcessorAffinity.ToInt64());
                     return true;
                 }
                 catch (PlatformNotSupportedException)
@@ -243,22 +251,38 @@ namespace Raven.Server.Utils
 
             private void InitializeProcessThreads()
             {
-                var unmanagedThreadId = PlatformDetails.GetCurrentThreadId();
+                if (PlatformDetails.RunningOnMacOsx)
+                {
+                    // Mac OSX threads API doesn't provide a way to set thread affinity
+                    // we can use thread_policy_set which will make sure that two threads will run
+                    // on different cpus, however we cannot choose which cpus will be used
+                    return;
+                }
+
+                _currentUnmangedThreadId = PlatformDetails.GetCurrentThreadId();
                 _currentProcess = Process.GetCurrentProcess();
+
+                if (PlatformDetails.RunningOnLinux)
+                {
+                    // for linux we'll use sched_setaffinity
+                    return;
+                }
+
                 foreach (ProcessThread pt in _currentProcess.Threads)
                 {
-                    if (pt.Id == unmanagedThreadId)
+                    if (pt.Id == (uint)_currentUnmangedThreadId)
                     {
                         _currentProcessThread = pt;
                         break;
                     }
                 }
+
                 if (_currentProcessThread == null)
-                    throw new InvalidOperationException("Unable to get the current process thread: " + unmanagedThreadId + ", this should not be possible");
+                    throw new InvalidOperationException("Unable to get the current process thread: " + _currentUnmangedThreadId + ", this should not be possible");
             }
 
 
-            private void ResetCurrentThreadName()
+            private static void ResetCurrentThreadName()
             {
                 var t = Thread.CurrentThread;
                 var runtimeThread = _runtimeThreadField.GetValue(t);
@@ -267,6 +291,9 @@ namespace Raven.Server.Utils
 
             internal void SetThreadAffinity(int numberOfCoresToReduce, long? threadMask)
             {
+                if (PlatformDetails.RunningOnMacOsx)
+                    return;
+
                 if (numberOfCoresToReduce <= 0 && threadMask == null)
                     return;
 
@@ -277,7 +304,7 @@ namespace Raven.Server.Utils
                 {
                     try
                     {
-                        _currentProcessThread.ProcessorAffinity = new IntPtr(currentAffinity);
+                        SetThreadAffinityByPlatform(currentAffinity);
                     }
                     catch (PlatformNotSupportedException)
                     {
@@ -309,17 +336,44 @@ namespace Raven.Server.Utils
                 
                 try
                 {
-                    _currentProcessThread.ProcessorAffinity = new IntPtr(currentAffinity);
+                    SetThreadAffinityByPlatform(currentAffinity);
                 }
                 catch (PlatformNotSupportedException)
                 {
                     // some platforms don't support it
-                    return;
                 }
                 catch (Exception)
                 {
                     // race with the setting of the processor cores? we can live with it, since it has little
                     // impact and should be very rare
+                }
+            }
+
+            private unsafe void SetThreadAffinityByPlatform(long affinity)
+            {
+                Debug.Assert(PlatformDetails.RunningOnMacOsx == false);
+
+                if (PlatformDetails.RunningOnPosix == false)
+                {
+                    // windows
+                    _currentProcessThread.ProcessorAffinity = new IntPtr(affinity);
+                    return;
+                }
+
+                if (PlatformDetails.RunningOnLinux)
+                {
+                    var set = new cpu_set_t();
+                    for (var cpu = 0; cpu < CpuSet.Size; cpu++)
+                    {
+                        var bitValue = (affinity & (1u << cpu)) == 0 ? 0UL : 1;
+                        set.__bits[cpu] = bitValue;
+                    }
+
+                    var result = Syscall.sched_setaffinity((int)_currentUnmangedThreadId, sizeof(cpu_set_t), &set);
+                    if (result != 0)
+                        throw new InvalidOperationException(
+                            $"Failed to set affinity for thread: {_currentUnmangedThreadId}, " +
+                            $"affinity: {affinity}, error: {Marshal.GetLastWin32Error()}");
                 }
             }
         }

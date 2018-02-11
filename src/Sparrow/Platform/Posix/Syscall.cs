@@ -9,6 +9,7 @@ namespace Sparrow.Platform.Posix
     public static unsafe class Syscall
     {
         internal const string LIBC_6 = "libc";
+        internal const string Pthread = "pthread";
 
         [DllImport(LIBC_6, EntryPoint = "memcpy", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode, SetLastError = false)]
         [SecurityCritical]
@@ -25,17 +26,23 @@ namespace Sparrow.Platform.Posix
         [DllImport(LIBC_6, EntryPoint = "memset", CallingConvention = CallingConvention.Cdecl, SetLastError = false)]
         [SecurityCritical]
         public static extern IntPtr Set(byte* dest, int c, long count);
-
+         
         [DllImport(LIBC_6, EntryPoint = "syscall", SetLastError = true)]
         private static extern long syscall0(long number);
 
-        public static int gettid()
+        [DllImport(Pthread, CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+        private static extern ulong pthread_self();
+
+        public static ulong gettid()
         {
             if (PlatformDetails.RunningOnMacOsx)
-                return 0;
+                return pthread_self();
 
-            return (int)syscall0(PerPlatformValues.SyscallNumbers.SYS_gettid);
+            return (ulong)syscall0(PerPlatformValues.SyscallNumbers.SYS_gettid);
         }
+
+        [DllImport(LIBC_6, SetLastError = true)]
+        public static extern int sched_setaffinity(int pid, int cpusetsize, cpu_set_t* mask);
 
         [DllImport(LIBC_6, SetLastError = true)]
         public static extern int setpriority(int which, int who, int prio);
