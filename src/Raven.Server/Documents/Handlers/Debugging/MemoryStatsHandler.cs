@@ -309,9 +309,10 @@ namespace Raven.Server.Documents.Handlers.Debugging
             }
 
             long managedMemoryInBytes = MemoryInformation.GetManagedMemoryInBytes();
+            long workingSetInBytes = memInfo.WorkingSet.GetValue(SizeUnit.Bytes);
             var djv = new DynamicJsonValue
             {
-                [nameof(MemoryInfo.WorkingSet)] = memInfo.WorkingSet,
+                [nameof(MemoryInfo.WorkingSet)] = workingSetInBytes,
                 [nameof(MemoryInfo.TotalUnmanagedAllocations)] = totalUnmanagedAllocations,
                 [nameof(MemoryInfo.ManagedAllocations)] = managedMemoryInBytes,
                 [nameof(MemoryInfo.TotalMemoryMapped)] = totalMapping,
@@ -326,7 +327,7 @@ namespace Raven.Server.Documents.Handlers.Debugging
 
                 [nameof(MemoryInfo.Humane)] = new DynamicJsonValue
                 {
-                    [nameof(MemoryInfoHumane.WorkingSet)] = Size.Humane(memInfo.WorkingSet.GetValue(SizeUnit.Bytes)),
+                    [nameof(MemoryInfoHumane.WorkingSet)] = Size.Humane(workingSetInBytes),
                     [nameof(MemoryInfoHumane.TotalUnmanagedAllocations)] = Size.Humane(totalUnmanagedAllocations),
                     [nameof(MemoryInfoHumane.ManagedAllocations)] = Size.Humane(managedMemoryInBytes),
                     [nameof(MemoryInfoHumane.TotalMemoryMapped)] = Size.Humane(totalMapping)
