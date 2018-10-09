@@ -381,7 +381,7 @@ namespace Raven.Server
 
                 var threadsInfo = threadsUsage.Calculate();
                 Console.Write($"{(i++ % 2 == 0 ? "*" : "+")} ");
-                Console.WriteLine($"CPU usage: {threadsInfo.CpuUsage:0.00}% (total threads: {threadsInfo.List.Count})   ");
+                Console.WriteLine($"CPU usage: {threadsInfo.CpuUsage:0.00}% (total threads: {threadsInfo.List.Count:#,#0}, active cores: {threadsInfo.ActiveCores})   ");
                 
                 var count = 0;
                 var isFirst = true;
