@@ -198,7 +198,25 @@ class extensions {
     }
 
     private static installBindingHandlers() {
-      
+
+        ko.bindingHandlers["tooltip"] = {
+            init: (element: any, valueAccessor: KnockoutObservable<string>) => {
+                const text = ko.utils.unwrapObservable(valueAccessor());
+                $(element).tooltip({
+                    title: text,
+                    container: element
+                });
+            },
+            update: (element: any, valueAccessor: KnockoutObservable<string>) => {
+                const text = ko.utils.unwrapObservable(valueAccessor());
+                $(element).attr("data-original-title", text);
+                var tooltipElement: HTMLElement = $(element).children(".tooltip")[0];
+                if (tooltipElement) {
+                    $(tooltipElement).find(".tooltip-inner").html(text);
+                }
+            }
+        };
+
         ko.bindingHandlers["scrollTo"] = {
             update: (element: any, valueAccessor: KnockoutObservable<boolean>) => {
                 if (valueAccessor()) {
