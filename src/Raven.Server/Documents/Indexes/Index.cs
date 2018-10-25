@@ -947,6 +947,7 @@ namespace Raven.Server.Documents.Indexes
                                             DocumentDatabase.IndexStore.StoppedConcurrentIndexBatches.Release();
                                         }
 
+                                        _threadAllocations.CurrentlyAllocatedForProcessing = 0;
                                         _inMemoryIndexProgress.Clear();
                                         TimeSpentIndexing.Stop();
                                     }
@@ -2810,7 +2811,6 @@ namespace Raven.Server.Documents.Indexes
             var txAllocations = indexingContext.Transaction.InnerTransaction.LowLevelTransaction.NumberOfModifiedPages *
                                 Voron.Global.Constants.Storage.PageSize;
             var indexWriterAllocations = indexWriteOperation?.GetUsedMemory() ?? 0;
-
             stats.RecordMapAllocations(threadAllocations + txAllocations + indexWriterAllocations);
 
             if (_indexDisabled)
@@ -2869,6 +2869,7 @@ namespace Raven.Server.Documents.Indexes
                                    2 * (indexWriterAllocations + txAllocations);
 
             var allocated = new Size(allocatedInBytes, SizeUnit.Bytes);
+            _threadAllocations.CurrentlyAllocatedForProcessing = allocated.GetValue(SizeUnit.Bytes);
             if (allocated > _currentMaximumAllowedMemory)
             {
                 var canContinue = true;

@@ -58,6 +58,19 @@ namespace Raven.Server.ServerWide.Memory
                 return false;
             }
 
+            var allocatedForProcessing = GetTotalCurrentlyAllocatedForProcessing();
+            if (memoryAssumedFreeOrCheapToFree < allocatedForProcessing)
+            {
+                if (logger.IsInfoEnabled)
+                {
+                    logger.Info(
+                        $"Allocated memory for processing: {allocatedForProcessing}, free memory: {memoryAssumedFreeOrCheapToFree}, " +
+                        $"total memory: {memoryInfo.TotalPhysicalMemory} free RAM.");
+                }
+
+                return false;
+            }
+
             // even though we have twice as much memory as we have current allocated, we will 
             // only increment by 16MB to avoid over allocation by multiple indexes. This way, 
             // we'll check often as we go along this
@@ -80,6 +93,21 @@ namespace Raven.Server.ServerWide.Memory
             var workingSetInBytes = memoryInfo.WorkingSet.GetValue(SizeUnit.Bytes);
             var privateMemory = MemoryInformation.GetManagedMemoryInBytes() + MemoryInformation.GetUnManagedAllocationsInBytes();
             return new ProcessMemoryUsage(workingSetInBytes, privateMemory);
+        }
+
+        private static Size GetTotalCurrentlyAllocatedForProcessing()
+        {
+            var total = 0L;
+
+            foreach (var stats in NativeMemory.AllThreadStats)
+            {
+                if (stats.IsThreadAlive() == false)
+                    continue;
+
+                total += stats.CurrentlyAllocatedForProcessing;
+            }
+
+            return new Size(total, SizeUnit.Bytes);
         }
     }
 }
