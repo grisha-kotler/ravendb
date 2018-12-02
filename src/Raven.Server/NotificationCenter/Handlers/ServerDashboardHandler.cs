@@ -65,5 +65,18 @@ namespace Raven.Server.NotificationCenter.Handlers
                 }
             }
         }
+
+        [RavenAction("/server-dashboard/threads/watch", "GET", AuthorizationStatus.Operator, SkipUsagesCount = true)]
+        public async Task GetThreads()
+        {
+            using (var webSocket = await HttpContext.WebSockets.AcceptWebSocketAsync())
+            {
+                using (var writer = new NotificationCenterWebSocketWriter(webSocket, ServerStore.ServerDashboardThreadsInfo, ServerStore.ContextPool,
+                    ServerStore.ServerShutdown))
+                {
+                    await writer.WriteNotifications(null);
+                }
+            }
+        }
     }
 }

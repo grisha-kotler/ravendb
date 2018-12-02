@@ -2,7 +2,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,11 +15,9 @@ using Raven.Server.Json;
 using Raven.Server.NotificationCenter;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
-using Raven.Server.Utils;
 using Sparrow;
 using Sparrow.Collections;
 using Sparrow.Json;
-using Sparrow.Platform;
 using Sparrow.Utils;
 
 namespace Raven.Server.Dashboard

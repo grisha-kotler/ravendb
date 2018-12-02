@@ -95,6 +95,7 @@ namespace Raven.Server.ServerWide
         public readonly DatabasesLandlord DatabasesLandlord;
         public readonly NotificationCenter.NotificationCenter NotificationCenter;
         public readonly ServerDashboardNotifications ServerDashboardNotifications;
+        public readonly ServerDashboardThreadsInfo ServerDashboardThreadsInfo;
         public readonly LicenseManager LicenseManager;
         public readonly FeedbackSender FeedbackSender;
         public readonly StorageSpaceMonitor StorageSpaceMonitor;
@@ -125,6 +126,8 @@ namespace Raven.Server.ServerWide
             NotificationCenter = new NotificationCenter.NotificationCenter(_notificationsStorage, null, ServerShutdown, configuration);
 
             ServerDashboardNotifications = new ServerDashboardNotifications(this, ServerShutdown);
+
+            ServerDashboardThreadsInfo = new ServerDashboardThreadsInfo(ServerShutdown);
 
             _operationsStorage = new OperationsStorage();
 

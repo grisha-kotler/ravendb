@@ -58,7 +58,7 @@ namespace Raven.Server.NotificationCenter
                             continue;
                         }
 
-                        if(shouldWriteByDb != null && 
+                        if (shouldWriteByDb != null && 
                             shouldWriteByDb((string)tuple.Item2["Database"]) == false)
                             continue;
 
