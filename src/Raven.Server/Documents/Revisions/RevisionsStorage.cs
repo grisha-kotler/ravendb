@@ -250,7 +250,6 @@ namespace Raven.Server.Documents.Revisions
             return Configuration.Default ?? _emptyConfiguration;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool ShouldVersionDocument(CollectionName collectionName, NonPersistentDocumentFlags nonPersistentFlags,
             BlittableJsonReaderObject existingDocument, BlittableJsonReaderObject document, 
             DocumentsOperationContext context, string id, 
@@ -321,7 +320,6 @@ namespace Raven.Server.Documents.Revisions
             return true;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Put(DocumentsOperationContext context, string id, BlittableJsonReaderObject document,
             DocumentFlags flags, NonPersistentDocumentFlags nonPersistentFlags, string changeVector, long lastModifiedTicks,
             RevisionsCollectionConfiguration configuration = null, CollectionName collectionName = null)

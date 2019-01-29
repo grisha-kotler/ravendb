@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -13,7 +12,6 @@ using Sparrow.Json.Parsing;
 using Voron;
 using Voron.Data.Tables;
 using System.Linq;
-using Raven.Client.Documents.Operations.Revisions;
 using Raven.Client.Exceptions;
 using Sparrow;
 using static Raven.Server.Documents.DocumentsStorage;
@@ -300,7 +298,7 @@ namespace Raven.Server.Documents
             return (changeVector, nonPersistentFlags);
         }
 
-        private bool UpdateLastDatabaseChangeVector(DocumentsOperationContext context, string changeVector, DocumentFlags flags, NonPersistentDocumentFlags nonPersistentFlags)
+        private static bool UpdateLastDatabaseChangeVector(DocumentsOperationContext context, string changeVector, DocumentFlags flags, NonPersistentDocumentFlags nonPersistentFlags)
         {
             // this is raft created document, so it must contain only the RAFT element 
             if (flags.Contain(DocumentFlags.FromClusterTransaction))
