@@ -17,7 +17,6 @@ using Raven.Client.Documents.Operations.Backups;
 using Raven.Client.Documents.Operations.Configuration;
 using Raven.Client.Documents.Operations.Replication;
 using Raven.Client.Documents.Session;
-using Raven.Client.Exceptions.Cluster;
 using Raven.Client.Exceptions.Database;
 using Raven.Client.Exceptions.Documents.Subscriptions;
 using Raven.Client.Exceptions.Security;
@@ -61,22 +60,34 @@ namespace Raven.Server.ServerWide
         private const string LocalNodeStateTreeName = "LocalNodeState";
         private static readonly StringSegment DatabaseName = new StringSegment("DatabaseName");
 
-        private static readonly TableSchema ItemsSchema;
-        private static readonly TableSchema CompareExchangeSchema;
+        public static readonly TableSchema ItemsSchema;
+        public static readonly TableSchema CompareExchangeSchema;
+        public static readonly TableSchema CompareExchangeTombstoneSchema;
         public static readonly TableSchema TransactionCommandsSchema;
 
         public enum UniqueItems
         {
             Key,
             Index,
-            Value
+            Value,
+            PrefixIndex
         }
 
-        private static readonly Slice Items;
-        private static readonly Slice CompareExchange;
+        public enum UniqueTombstoneItems
+        {
+            Key,
+            Index,
+            PrefixIndex
+        }
+
+        public static readonly Slice Items;
+        public static readonly Slice CompareExchange;
+        public static readonly Slice CompareExchangeTombstone;
         public static readonly Slice Identities;
         public static readonly Slice TransactionCommands;
         public static readonly Slice TransactionCommandsCountPerDatabase;
+        public static readonly Slice CompareExchangeIndexSlice;
+        public static readonly Slice CompareExchangeTombstoneIndexSlice;
 
         static ClusterStateMachine()
         {
@@ -84,9 +95,12 @@ namespace Raven.Server.ServerWide
             {
                 Slice.From(ctx, "Items", out Items);
                 Slice.From(ctx, "CmpXchg", out CompareExchange);
+                Slice.From(ctx, "CmpXchgTombstone", out CompareExchangeTombstone);
                 Slice.From(ctx, "Identities", out Identities);
                 Slice.From(ctx, "TransactionCommands", out TransactionCommands);
                 Slice.From(ctx, "TransactionCommandsIndex", out TransactionCommandsCountPerDatabase);
+                Slice.From(ctx, "CompareExchangeIndexSlice", out CompareExchangeIndexSlice);
+                Slice.From(ctx, "CompareExchangeTombstoneIndexSlice", out CompareExchangeTombstoneIndexSlice);
             }
             ItemsSchema = new TableSchema();
 
@@ -101,8 +115,27 @@ namespace Raven.Server.ServerWide
             CompareExchangeSchema = new TableSchema();
             CompareExchangeSchema.DefineKey(new TableSchema.SchemaIndexDef
             {
-                StartIndex = 0,
+                StartIndex = (int)UniqueItems.Key,
                 Count = 1
+            });
+            CompareExchangeSchema.DefineIndex(new TableSchema.SchemaIndexDef
+            {
+                StartIndex = (int)UniqueItems.PrefixIndex,
+                IsGlobal = true,
+                Name = CompareExchangeIndexSlice
+            });
+
+            CompareExchangeTombstoneSchema = new TableSchema();
+            CompareExchangeTombstoneSchema.DefineKey(new TableSchema.SchemaIndexDef
+            {
+                StartIndex = (int)UniqueTombstoneItems.Key,
+                Count = 1
+            });
+            CompareExchangeTombstoneSchema.DefineIndex(new TableSchema.SchemaIndexDef
+            {
+                StartIndex = (int)UniqueTombstoneItems.PrefixIndex,
+                IsGlobal = true,
+                Name = CompareExchangeTombstoneIndexSlice
             });
 
             TransactionCommandsSchema = new TableSchema();
@@ -144,14 +177,26 @@ namespace Raven.Server.ServerWide
                         ClusterStateCleanUp(context, cmd, index);
                         break;
                     case nameof(AddOrUpdateCompareExchangeBatchCommand):
-                        if (cmd.TryGet(nameof(AddOrUpdateCompareExchangeBatchCommand.Commands), out BlittableJsonReaderArray commands) == false)
+                        if (cmd.TryGet(nameof(AddOrUpdateCompareExchangeBatchCommand.Commands), out BlittableJsonReaderArray addCommands) == false)
                         {
                             throw new RachisApplyException($"'{nameof(AddOrUpdateCompareExchangeBatchCommand.Commands)}' is missing in '{nameof(AddOrUpdateCompareExchangeBatchCommand)}'.");
                         }
-                        foreach (BlittableJsonReaderObject command in commands)
+                        foreach (BlittableJsonReaderObject command in addCommands)
                         {
                             Apply(context, command, index, leader, serverStore);
                         }
+                        SetCompareExchangeIndex(context, cmd, index, type);
+                        break;
+                    case nameof(RemoveCompareExchangeBatchCommand):
+                        if (cmd.TryGet(nameof(RemoveCompareExchangeBatchCommand.Commands), out BlittableJsonReaderArray removeCommands) == false)
+                        {
+                            throw new RachisApplyException($"'{nameof(RemoveCompareExchangeBatchCommand.Commands)}' is missing in '{nameof(RemoveCompareExchangeBatchCommand)}'.");
+                        }
+                        foreach (BlittableJsonReaderObject command in removeCommands)
+                        {
+                            Apply(context, command, index, leader, serverStore);
+                        }
+                        SetCompareExchangeIndex(context, cmd, index, type);
                         break;
                     //The reason we have a separate case for removing node from database is because we must 
                     //actually delete the database before we notify about changes to the record otherwise we 
@@ -238,6 +283,7 @@ namespace Raven.Server.ServerWide
                     case nameof(RemoveCompareExchangeCommand):
                         ExecuteCompareExchange(context, type, cmd, index, out var removeItem);
                         leader?.SetStateOf(index, removeItem);
+                        SetCompareExchangeIndex(context, cmd, index, type);
                         break;
                     case nameof(InstallUpdatedServerCertificateCommand):
                         InstallUpdatedServerCertificate(context, cmd, index, serverStore);
@@ -320,6 +366,32 @@ namespace Raven.Server.ServerWide
                     Term = leader?.Term,
                     LeaderShipDuration = leader?.LeaderShipDuration,
                 });
+            }
+        }
+
+        private void SetCompareExchangeIndex(TransactionOperationContext toc, BlittableJsonReaderObject bjro, long index, string type)
+        {
+            if (index < 0)
+                return;
+
+            if ((bjro.TryGet(nameof(CompareExchangeCommandBase.Database), out string databaseName) == false || string.IsNullOrEmpty(databaseName)) && type.Equals(nameof(AddOrUpdateCompareExchangeCommand)))
+                throw new RachisApplyException("Update database command must contain a DatabaseName property");
+
+            var dbKey = $"db/{databaseName}";
+            var items = toc.Transaction.InnerTransaction.OpenTable(ItemsSchema, Items);
+
+            using (Slice.From(toc.Allocator, dbKey, out Slice key))
+            using (Slice.From(toc.Allocator, dbKey.ToLowerInvariant(), out Slice keyLowered))
+            {
+                var databaseRecordJson = ReadInternal(toc, out _, keyLowered);
+                if (databaseRecordJson == null)
+                    return;
+
+                var databaseRecord = JsonDeserializationCluster.DatabaseRecord(databaseRecordJson);
+                databaseRecord.CompareExchangeIndexForBackup = index;
+
+                var updatedDatabaseBlittable = EntityToBlittable.ConvertCommandToBlittable(databaseRecord, toc);
+                UpdateValue(index, items, keyLowered, key, updatedDatabaseBlittable);
             }
         }
 
@@ -746,10 +818,11 @@ namespace Raven.Server.ServerWide
             }
 
             DeleteTreeByPrefix(context, UpdateValueForDatabaseCommand.GetStorageKey(databaseName, null), Identities);
-
-            using (Slice.From(context.Allocator, databaseName + "/", out var databaseSlice))
+            var databaseLowered = databaseName.ToLowerInvariant();
+            using (Slice.From(context.Allocator, databaseLowered + "/", out var databaseSlice))
             {
                 context.Transaction.InnerTransaction.OpenTable(CompareExchangeSchema, CompareExchange).DeleteByPrimaryKeyPrefix(databaseSlice);
+                context.Transaction.InnerTransaction.OpenTable(CompareExchangeTombstoneSchema, CompareExchangeTombstone).DeleteByPrimaryKeyPrefix(databaseSlice);
             }
         }
 
@@ -1103,6 +1176,7 @@ namespace Raven.Server.ServerWide
             base.Initialize(parent, context);
             ItemsSchema.Create(context.Transaction.InnerTransaction, Items, 32);
             CompareExchangeSchema.Create(context.Transaction.InnerTransaction, CompareExchange, 32);
+            CompareExchangeTombstoneSchema.Create(context.Transaction.InnerTransaction, CompareExchangeTombstone, 32);
             TransactionCommandsSchema.Create(context.Transaction.InnerTransaction, TransactionCommands, 32);
             context.Transaction.InnerTransaction.CreateTree(TransactionCommandsCountPerDatabase);
             context.Transaction.InnerTransaction.CreateTree(LocalNodeStateTreeName);
@@ -1238,7 +1312,6 @@ namespace Raven.Server.ServerWide
             }
         }
 
-
         public BlittableJsonReaderObject GetItem(TransactionOperationContext context, string key)
         {
             var items = context.Transaction.InnerTransaction.OpenTable(ItemsSchema, Items);
@@ -1256,7 +1329,19 @@ namespace Raven.Server.ServerWide
         {
             var items = context.Transaction.InnerTransaction.OpenTable(CompareExchangeSchema, CompareExchange);
             var compareExchange = (CompareExchangeCommandBase)JsonDeserializationCluster.Commands[type](cmd);
-            result = compareExchange.Execute(context, items, index);
+            if (type.Equals(nameof(AddOrUpdateCompareExchangeCommand)))
+            {
+                result = compareExchange.Execute(context, items, index);
+            }
+            else
+            {
+                if (cmd.TryGet(nameof(RemoveCompareExchangeCommand.FromBackup), out bool fromBackup) == false)
+                    throw new ArgumentException("Missing fromBackup argument");
+
+                var tombstoneItems = context.Transaction.InnerTransaction.OpenTable(CompareExchangeTombstoneSchema, CompareExchangeTombstone);
+                result = compareExchange.Execute(context, items, index, tombstoneItems, fromBackup);
+            }
+
             OnTransactionDispose(context, index);
         }
 
@@ -1335,11 +1420,96 @@ namespace Raven.Server.ServerWide
             }
         }
 
+        public IEnumerable<(string Key, long Index, BlittableJsonReaderObject Value)> GetCompareExchangeFrom(TransactionOperationContext context, string dbName, long fromIndex, int take)
+        {
+            CompareExchangeCommandBase.GetPrefixIndexSlices(context.Allocator, dbName, fromIndex, out var indexTuple);
+
+            using (indexTuple.Scope)
+            {
+                var table = context.Transaction.InnerTransaction.OpenTable(CompareExchangeSchema, CompareExchange);
+                using (Slice.External(context.Allocator, indexTuple.Buffer, indexTuple.Buffer.Length, out var keySlice))
+                    foreach (var tvr in table.SeekForwardFrom(CompareExchangeSchema.Indexes[CompareExchangeIndexSlice], keySlice, 0))
+                    {
+                        if (take-- <= 0)
+                            yield break;
+
+                        var key = ReadCompareExchangeKey(tvr.Result.Reader, dbName);
+                        var index = ReadCompareExchangeIndex(tvr.Result.Reader);
+                        var value = ReadCompareExchangeValue(context, tvr.Result.Reader);
+
+                        yield return (key, index, value);
+                    }
+            }
+        }
+
+        public IEnumerable<(string key, long index, BlittableJsonReaderObject value)> GetCompareExchangeFromPrefix(TransactionOperationContext context, string dbName, long fromIndex, int take)
+        {
+            CompareExchangeCommandBase.GetPrefixIndexSlices(context.Allocator, dbName, fromIndex, out var indexTuple);
+
+            using (indexTuple.Scope)
+            {
+                var table = context.Transaction.InnerTransaction.OpenTable(CompareExchangeSchema, CompareExchange);
+                using (Slice.External(context.Allocator, indexTuple.Buffer, indexTuple.Buffer.Length, out var keySlice))
+                using (Slice.External(context.Allocator, indexTuple.Buffer, indexTuple.Buffer.Length - sizeof(long), out var prefix))
+                    foreach (var tvr in table.SeekForwardFromPrefix(CompareExchangeSchema.Indexes[CompareExchangeIndexSlice], keySlice, prefix, 0))
+                    {
+                        if (take-- <= 0)
+                            yield break;
+
+                        var key = ReadCompareExchangeKey(tvr.Result.Reader, dbName);
+                        var index = ReadCompareExchangeIndex(tvr.Result.Reader);
+                        var value = ReadCompareExchangeValue(context, tvr.Result.Reader);
+
+                        yield return (key, index, value);
+                    }
+            }
+        }
+
+        public IEnumerable<string> GetCompareExchangeTombstonesByKey(TransactionOperationContext context,
+            string dbName, long fromIndex = 0, int take = int.MaxValue)
+        {
+            CompareExchangeCommandBase.GetPrefixIndexSlices(context.Allocator, dbName, fromIndex, out var indexTuple);
+
+            using (indexTuple.Scope)
+            {
+                var table = context.Transaction.InnerTransaction.OpenTable(CompareExchangeTombstoneSchema, CompareExchangeTombstone);
+                using (Slice.External(context.Allocator, indexTuple.Buffer, indexTuple.Buffer.Length, out var keySlice))
+                using (Slice.External(context.Allocator, indexTuple.Buffer, indexTuple.Buffer.Length - sizeof(long), out var prefix))
+                    foreach (var tvr in table.SeekForwardFromPrefix(CompareExchangeTombstoneSchema.Indexes[CompareExchangeTombstoneIndexSlice], keySlice, prefix, 0))
+                    {
+                        if (take-- <= 0)
+                            yield break;
+
+                        var key = ReadCompareExchangeKey(tvr.Result.Reader, dbName);
+
+                        yield return key;
+                    }
+            }
+            //var table = context.Transaction.InnerTransaction.OpenTable(CompareExchangeTombstoneSchema, CompareExchangeTombstone);
+            //foreach (var item in table.SeekByPrimaryKey(Slices.BeforeAllKeys, 0))
+            //{
+            //    var key = ReadCompareExchangeKey(item.Reader, dbName);
+
+            //    yield return key;
+            //}
+        }
+
         private static unsafe string ReadCompareExchangeKey(TableValueReader reader, string dbPrefix)
         {
             var ptr = reader.Read((int)UniqueItems.Key, out var size);
-            // we need to read only the key from the format: 'databaseName/key'
-            return Encodings.Utf8.GetString(ptr, size).Substring(dbPrefix.Length + 1);
+            try
+            {
+                // we need to read only the key from the format: 'databaseName/key'
+                return Encodings.Utf8.GetString(ptr, size).Substring(dbPrefix.Length + 1);
+            }
+            catch (Exception e)
+            {
+                // todo: remove that exception handling
+                if (e is ArgumentOutOfRangeException)
+                    throw new ArgumentOutOfRangeException("");
+
+                throw;
+            }
         }
 
         private static unsafe BlittableJsonReaderObject ReadCompareExchangeValue(TransactionOperationContext context, TableValueReader reader)
@@ -1409,7 +1579,7 @@ namespace Raven.Server.ServerWide
             }
         }
 
-        private static unsafe string GetCurrentItemKey(Table.TableValueHolder result)
+        public static unsafe string GetCurrentItemKey(Table.TableValueHolder result)
         {
             return Encoding.UTF8.GetString(result.Reader.Read(1, out int size), size);
         }
@@ -1823,10 +1993,12 @@ namespace Raven.Server.ServerWide
 
             _rachisLogIndexNotifications.NotifyListenersAbout(lastIncludedIndex, null);
         }
+
         protected override RachisVersionValidation InitializeValidator()
         {
             return new ClusterValidator();
         }
+
         public static bool InterlockedExchangeMax(ref long location, long newValue)
         {
             long initialValue;

@@ -4,8 +4,11 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using FastTests;
+using Raven.Client.Documents.Operations;
 using Raven.Client.Documents.Operations.CompareExchange;
 using Raven.Client.Documents.Smuggler;
+using Raven.Client.ServerWide.Operations;
+using Raven.Server.ServerWide.Context;
 using Raven.Tests.Core.Utils.Entities;
 using Xunit;
 
@@ -260,6 +263,68 @@ namespace SlowTests.Client
             Assert.Equal("Karmel", res2.Value.Name);
             Assert.True(res.Successful);
             Assert.True(res2.Successful);
+        }
+
+        [Fact]
+        public async Task CompareExchangeShouldBeRemovedFromStorageWhenDbGetsDeleted()
+        {
+            using (var store = GetDocumentStore())
+            {
+                var user = new User
+                {
+                    Name = "💩"
+                };
+                await store.Operations.SendAsync(new PutCompareExchangeValueOperation<User>("emojis/poo", user, 0));
+
+                var dbName = store.Database;
+                var stats = store.Maintenance.ForDatabase(dbName).Send(new GetDetailedStatisticsOperation());
+
+                Assert.Equal(1, stats.CountOfCompareExchange);
+                await store.Maintenance.Server.SendAsync(new DeleteDatabasesOperation(dbName, hardDelete: false));
+
+                int resultItems = 0;
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var result = Server.ServerStore.Cluster.GetCompareExchangeFrom(ctx, dbName, 0, int.MaxValue);
+                    foreach (var item in result)
+                        resultItems++;
+                }
+
+                Assert.Equal(0, resultItems);
+            }
+        }
+
+        [Fact]
+        public async Task CompareExchangeTombstoneShouldBeRemovedFromStorageWhenDbGetsDeleted()
+        {
+            using (var store = GetDocumentStore())
+            {
+                var user = new User
+                {
+                    Name = "🤡"
+                };
+                var cxRes = await store.Operations.SendAsync(new PutCompareExchangeValueOperation<User>("emojis/clown", user, 0));
+
+                var dbName = store.Database;
+                var stats = store.Maintenance.ForDatabase(dbName).Send(new GetDetailedStatisticsOperation());
+                Assert.Equal(1, stats.CountOfCompareExchange);
+                await store.Operations.SendAsync(new DeleteCompareExchangeValueOperation<User>("emojis/clown", cxRes.Index));
+                stats = store.Maintenance.ForDatabase(dbName).Send(new GetDetailedStatisticsOperation());
+                Assert.Equal(0, stats.CountOfCompareExchange);
+
+                await store.Maintenance.Server.SendAsync(new DeleteDatabasesOperation(dbName, hardDelete: false));
+                int resultItems = 0;
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var result = Server.ServerStore.Cluster.GetCompareExchangeTombstonesByKey(ctx, dbName);
+                    foreach (var item in result)
+                        resultItems++;
+                }
+
+                Assert.Equal(0, resultItems);
+            }
         }
     }
 }
