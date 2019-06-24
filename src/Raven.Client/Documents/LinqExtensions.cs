@@ -1003,7 +1003,7 @@ namespace Raven.Client.Documents
             return (IRavenQueryable<IGrouping<IEnumerable<TKey>, TSource>>)queryable;
         }
 
-        public static IRavenQueryable<T> Where<T>(this IQueryable<T> source, Expression<Func<T, int, bool>> predicate, bool exact)
+        public static IRavenQueryable<T> Where<T>(this IQueryable<T> source, Expression<Func<T, int, bool>> predicate, bool exact = false)
         {
             var currentMethod = (MethodInfo)MethodBase.GetCurrentMethod();
 
@@ -1014,7 +1014,7 @@ namespace Raven.Client.Documents
             return (IRavenQueryable<T>)queryable;
         }
 
-        public static IRavenQueryable<T> Where<T>(this IQueryable<T> source, Expression<Func<T, bool>> predicate, bool exact)
+        public static IRavenQueryable<T> Where<T>(this IQueryable<T> source, Expression<Func<T, bool>> predicate, bool exact = false)
         {
             var currentMethod = (MethodInfo)MethodBase.GetCurrentMethod();
 
