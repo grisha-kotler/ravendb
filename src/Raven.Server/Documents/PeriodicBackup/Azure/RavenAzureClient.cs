@@ -29,32 +29,41 @@ namespace Raven.Server.Documents.PeriodicBackup.Azure
     {
         private readonly string _accountName;
         private readonly byte[] _accountKey;
+        private readonly string _tempAccessToken;
         private readonly string _containerName;
         private readonly string _serverUrlForContainer;
+        private readonly bool _hasTempAccessToken;
         private readonly bool _isTest;
         private const string AzureStorageVersion = "2017-04-17";
         private const int MaxUploadPutBlobInBytes = 256 * 1024 * 1024; // 256MB
         private const int OnePutBlockSizeLimitInBytes = 100 * 1024 * 1024; // 100MB
         private const long TotalBlocksSizeLimitInBytes = 475L * 1024 * 1024 * 1024 * 1024L / 100; // 4.75TB
 
-        public RavenAzureClient(string accountName, string accountKey, string containerName,
-            Progress progress = null, CancellationToken? cancellationToken = null, bool isTest = false)
+        public RavenAzureClient(AzureSettings azureSettings, Progress progress = null, CancellationToken? cancellationToken = null, bool isTest = false)
             : base(progress, cancellationToken)
         {
-            _accountName = accountName;
+            _accountName = azureSettings.AccountName;
+            _hasTempAccessToken = string.IsNullOrWhiteSpace(azureSettings.TempAccessToken) == false;
 
-            try
+            if (_hasTempAccessToken)
             {
-                _accountKey = Convert.FromBase64String(accountKey);
+                _tempAccessToken = azureSettings.TempAccessToken;
             }
-            catch (Exception e)
+            else
             {
-                throw new ArgumentException("Wrong format for account key", e);
+                try
+                {
+                    _accountKey = Convert.FromBase64String(azureSettings.AccountKey);
+                }
+                catch (Exception e)
+                {
+                    throw new ArgumentException("Wrong format for account key", e);
+                }
             }
 
-            _containerName = containerName;
+            _containerName = azureSettings.StorageContainer;
 
-            _serverUrlForContainer = GetUrlForContainer(containerName.ToLower(), isTest);
+            _serverUrlForContainer = GetUrlForContainer(azureSettings.StorageContainer.ToLower(), isTest);
             _isTest = isTest;
         }
 
@@ -184,7 +193,7 @@ namespace Raven.Server.Documents.PeriodicBackup.Azure
 
                     if (retryCount == MaxRetriesForMultiPartUpload)
                         throw StorageException.FromResponseMessage(response);
-                    
+
                 }
                 catch (Exception)
                 {
@@ -287,6 +296,7 @@ namespace Raven.Server.Documents.PeriodicBackup.Azure
                 uncommitted.AppendChild(text);
                 blockList.AppendChild(uncommitted);
             }
+
             return doc;
         }
 
@@ -420,6 +430,11 @@ namespace Raven.Server.Documents.PeriodicBackup.Azure
         private AuthenticationHeaderValue CalculateAuthorizationHeaderValue(
             HttpMethod httpMethod, string url, HttpHeaders httpHeaders)
         {
+            if (_hasTempAccessToken)
+            {
+                return new AuthenticationHeaderValue("Bearer", _tempAccessToken);
+            }
+
             var stringToHash = ComputeCanonicalizedHeaders(httpMethod, httpHeaders);
             stringToHash += ComputeCanonicalizedResource(url);
 
