@@ -6,6 +6,7 @@ class azureSettings extends backupSettings {
     remoteFolderName = ko.observable<string>();
     accountName = ko.observable<string>();
     accountKey = ko.observable<string>();
+    tempAccessToken = ko.observable<string>();
 
     constructor(dto: Raven.Client.Documents.Operations.Backups.AzureSettings) {
         super(dto, "Azure");
@@ -14,6 +15,7 @@ class azureSettings extends backupSettings {
         this.remoteFolderName(dto.RemoteFolderName);
         this.accountName(dto.AccountName);
         this.accountKey(dto.AccountKey);
+        this.tempAccessToken(dto.TempAccessToken);
 
         this.initValidation();
 
@@ -86,6 +88,7 @@ class azureSettings extends backupSettings {
         dto.RemoteFolderName = this.remoteFolderName();
         dto.AccountName = this.accountName();
         dto.AccountKey = this.accountKey();
+        dto.TempAccessToken = this.tempAccessToken();
         return dto;
     }
 
@@ -96,6 +99,7 @@ class azureSettings extends backupSettings {
             RemoteFolderName: null,
             AccountName: null,
             AccountKey: null,
+            TempAccessToken: null,
             GetBackupConfigurationScript: null
         });
     }
