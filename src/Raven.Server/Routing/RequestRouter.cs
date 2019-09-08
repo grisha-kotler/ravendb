@@ -57,9 +57,16 @@ namespace Raven.Server.Routing
             var tryMatch = _trie.TryMatch(context.Request.Method, context.Request.Path.Value);
             if (tryMatch.Value == null)
             {
-                var exception = new RouteNotFoundException($"There is no handler for path: {context.Request.Method} {context.Request.Path.Value}{context.Request.QueryString}");
-                AssertClientVersion(context, exception);
-                throw exception;
+                tryMatch = _trie.TryMatch(context.Request.Method, $"/legacy{context.Request.Path.Value}");
+                if (tryMatch.Value == null)
+                {
+                    if (TryGetClientVersion(context, out var clientVersion))
+                    {
+                        var exception = new RouteNotFoundException($"There is no handler for path: {context.Request.Method} {context.Request.Path.Value}{context.Request.QueryString}");
+                        AssertClientVersion(context, exception);
+                        throw exception;
+                    }
+                }
             }
 
             reqCtx.RavenServer = _ravenServer;
