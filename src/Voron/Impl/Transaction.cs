@@ -329,27 +329,34 @@ namespace Voron.Impl
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public void RenameTree(string fromName, string toName)
+        public void RenameTree(string fromName, string toName, RootObjectType type = RootObjectType.VariableSizeTree)
         {
             Slice.From(Allocator, fromName, ByteStringType.Immutable, out Slice fromNameSlice);
             Slice.From(Allocator, toName, ByteStringType.Immutable, out Slice toNameSlice);
-            RenameTree(fromNameSlice, toNameSlice);
+            RenameTree(fromNameSlice, toNameSlice, type);
         }
 
-        public void RenameTree(Slice fromName, Slice toName)
+        public void RenameTable(string fromName, string toName)
+        {
+            Slice.From(Allocator, fromName, ByteStringType.Immutable, out Slice fromNameSlice);
+            Slice.From(Allocator, toName, ByteStringType.Immutable, out Slice toNameSlice);
+            RenameTree(fromNameSlice, toNameSlice, RootObjectType.Table);
+        }
+
+        private void RenameTree(Slice fromName, Slice toName, RootObjectType type)
         {
             if (_lowLevelTransaction.Flags == TransactionFlags.ReadWrite == false)
-                throw new ArgumentException("Cannot rename a new tree with a read only transaction");
+                throw new ArgumentException($"Cannot rename a new {GetTypeName().ToLower()} with a read only transaction");
 
             if (SliceComparer.Equals(toName, Constants.RootTreeNameSlice))
-                throw new InvalidOperationException("Cannot create a tree with reserved name: " + toName);
+                throw new InvalidOperationException($"Cannot create a {GetTypeName().ToLower()} with reserved name: {toName}");
 
-            if (ReadTree(toName) != null)
-                throw new ArgumentException("Cannot rename a tree with the name of an existing tree: " + toName);
+            if (ReadTree(toName, type) != null)
+                throw new ArgumentException($"Cannot rename a {GetTypeName().ToLower()} with the name of an existing {GetTypeName().ToLower()}: {toName}");
 
-            Tree fromTree = ReadTree(fromName);
+            Tree fromTree = ReadTree(fromName, type);
             if (fromTree == null)
-                throw new ArgumentException("Tree " + fromName + " does not exists");
+                throw new ArgumentException($"{GetTypeName()} {fromName} does not exist");
 
             _lowLevelTransaction.RootObjects.Delete(fromName);
 
@@ -360,11 +367,16 @@ namespace Voron.Impl
             fromTree.Rename(toName);
             fromTree.State.IsModified = true;
 
-            // _trees already ensrued already created in ReadTree
+            // _trees already created in ReadTree
             _trees.Remove(fromName);
             _trees.Remove(toName);
 
             AddTree(toName, fromTree);
+
+            string GetTypeName()
+            {
+                return type == RootObjectType.Table ? "Table" : "Tree";
+            }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

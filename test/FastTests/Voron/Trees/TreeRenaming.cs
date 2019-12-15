@@ -74,7 +74,7 @@ namespace FastTests.Voron.Trees
             {
                 var ae = Assert.Throws<ArgumentException>(() => tx.RenameTree( "tree_1", "tree_2"));
 
-                Assert.Equal("Tree tree_1 does not exists", ae.Message);
+                Assert.Equal("Tree tree_1 does not exist", ae.Message);
             }
         }
 
