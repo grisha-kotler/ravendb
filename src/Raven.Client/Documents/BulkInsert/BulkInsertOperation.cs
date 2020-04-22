@@ -21,6 +21,7 @@ using Raven.Client.Extensions;
 using Raven.Client.Http;
 using Raven.Client.Json;
 using Raven.Client.Util;
+using Sparrow.Extensions;
 using Sparrow.Json;
 using Sparrow.Threading;
 
@@ -689,12 +690,10 @@ namespace Raven.Client.Documents.BulkInsert
             private readonly string _id;
             private readonly string _name;
             private bool _first = true;
-            private const int _maxTimeSeriesInBatch = 1024;
-            private int _timeSeriesInBatch = 0;
 
             public TimeSeriesBulkInsert(BulkInsertOperation operation, string id, string name)
             {
-                _operation.EndPreviousCommandIfNeeded();
+                operation.EndPreviousCommandIfNeeded();
 
                 _operation = operation;
                 _id = id;
@@ -738,17 +737,14 @@ namespace Raven.Client.Documents.BulkInsert
 
                             WritePrefixForNewCommand();
                         }
-                        else if (_timeSeriesInBatch >= _maxTimeSeriesInBatch)
-                        {
-                            _operation._currentWriter.Write("]}},");
-                            WritePrefixForNewCommand();
-                        }
 
-                        _timeSeriesInBatch++;
-
+                        var isFirst = _first;
                         if (_first == false)
                         {
                             _operation.WriteComma();
+                            //write perfix for command
+
+                            _operation._currentWriter.Write("{\"Type\":\"Append\",\"Append\":{\"Append\":");
                         }
 
                         _first = false;
@@ -780,6 +776,14 @@ namespace Raven.Client.Documents.BulkInsert
 
                         _operation._currentWriter.Write("]");
 
+                        if (isFirst)
+                        {
+                            _operation._currentWriter.Write("]}}");
+                        }
+                        else
+                        {
+                            _operation._currentWriter.Write("}}");
+                        }
                         await _operation.FlushIfNeeded().ConfigureAwait(false);
                     }
                     catch (Exception e)
@@ -792,7 +796,6 @@ namespace Raven.Client.Documents.BulkInsert
             private void WritePrefixForNewCommand()
             {
                 _first = true;
-                _timeSeriesInBatch = 0;
 
                 _operation._currentWriter.Write("{\"Id\":\"");
                 _operation.WriteString(_id);
@@ -810,8 +813,8 @@ namespace Raven.Client.Documents.BulkInsert
             {
                 _operation._inProgressCommand = CommandType.None;
 
-                if (_first == false)
-                    _operation._currentWriter.Write("]}}");
+                ///if (_first == false)
+                //    _operation._currentWriter.Write("]}}");
             }
         }
 

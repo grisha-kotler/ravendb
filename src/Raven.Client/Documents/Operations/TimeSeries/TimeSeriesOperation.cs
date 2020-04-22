@@ -9,6 +9,8 @@ namespace Raven.Client.Documents.Operations.TimeSeries
 {
     public class TimeSeriesOperation
     {
+        internal SortedList<long, AppendOperation> SortedForBulkInsert;
+
         public List<AppendOperation> Appends;
 
         public List<RemoveOperation> Removals;
@@ -114,7 +116,8 @@ namespace Raven.Client.Documents.Operations.TimeSeries
                 sorted[append.Timestamp.Ticks] = append;
             }
 
-            result.Appends = new List<AppendOperation>(sorted.Values);
+            //result.Appends = new List<AppendOperation>(sorted.Values);
+            result.SortedForBulkInsert = sorted;
 
             return result;
         }
@@ -179,6 +182,37 @@ namespace Raven.Client.Documents.Operations.TimeSeries
                 };
 
                 return op;
+            }
+
+            internal static AppendOperation ParseForBulkInsert1(BlittableJsonReaderObject input)
+            {
+                input.TryGet("Append", out BlittableJsonReaderArray bjro);
+
+                var append = new AppendOperation
+                {
+                    Timestamp = new DateTime((long)bjro[0])
+                };
+
+                var numberOfValues = (long)bjro[1];
+                var doubleValues = new double[numberOfValues];
+
+                for (var i = 0; i < numberOfValues; i++)
+                {
+                    doubleValues[i] = Convert.ToDouble(bjro[i + 2]);
+                }
+
+                append.Values = doubleValues;
+
+                var tagIndex = 2 + numberOfValues;
+                if (bjro.Length > tagIndex)
+                {
+                    if (BlittableJsonReaderObject.ChangeTypeToString(bjro[(int)tagIndex], out string tagAsString) == false)
+                        ThrowNotString(bjro[0]);
+
+                    append.Tag = tagAsString;
+                }
+
+                return append;
             }
 
             public DynamicJsonValue ToJson()

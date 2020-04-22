@@ -36,6 +36,7 @@ namespace Raven.Client.Documents.Commands.Batches
         Counters,
         TimeSeries,
         TimeSeriesBulkInsert,
+        Append,
 
         BatchPATCH,
         // NOTE: When you add anything here, such as additional 

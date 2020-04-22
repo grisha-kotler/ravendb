@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -9,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Raven.Client.Documents.Commands.Batches;
 using Raven.Client.Documents.Operations;
+using Raven.Client.Documents.Operations.TimeSeries;
 using Raven.Server.Routing;
 using Raven.Server.ServerWide.Context;
 using Raven.Server.Smuggler.Documents;
@@ -40,7 +42,6 @@ namespace Raven.Server.Documents.Handlers
             var progress = new BulkInsertProgress();
             try
             {
-
                 var logger = LoggingSource.Instance.GetLogger<MergedInsertBulkCommand>(Database.Name);
                 IDisposable currentCtxReset = null, previousCtxReset = null;
 
@@ -59,6 +60,9 @@ namespace Raven.Server.Documents.Handlers
                             var array = new BatchRequestParser.CommandData[8];
                             var numberOfCommands = 0;
                             long totalSize = 0;
+                            BatchRequestParser.CommandData? bulkInsertCommandData = null;
+                            Task previousTask = null;
+
                             while (true)
                             {
                                 using (var modifier = new BlittableMetadataModifier(docsCtx))
@@ -72,34 +76,60 @@ namespace Raven.Server.Documents.Handlers
                                     // if we are going to wait on the network, flush immediately
                                     if ((task.Wait(5) == false && numberOfCommands > 0) ||
                                         // but don't batch too much anyway
-                                        totalSize > 16 * Voron.Global.Constants.Size.Megabyte)
+                                        totalSize > 4 * Voron.Global.Constants.Size.Megabyte)
                                     {
-                                        using (ReplaceContextIfCurrentlyInUse(task, numberOfCommands, array))
+                                        if (previousTask != null)
+                                            await previousTask;
+
+                                        var disposable = ReplaceContextIfCurrentlyInUse(task, numberOfCommands, array);
+                                        var copyArray = new BatchRequestParser.CommandData[numberOfCommands];
+                                        for (int i = 0; i < numberOfCommands; i++)
                                         {
-                                            await Database.TxMerger.Enqueue(new MergedInsertBulkCommand
-                                            {
-                                                Commands = array,
-                                                NumberOfCommands = numberOfCommands,
-                                                Database = Database,
-                                                Logger = logger,
-                                                TotalSize = totalSize
-                                            });
+                                            copyArray[i] = array[i];
                                         }
 
-                                        ClearStreamsTempFiles();
+                                        previousTask = Database.TxMerger.Enqueue(new MergedInsertBulkCommand
+                                        {
+                                            Commands = copyArray,
+                                            NumberOfCommands = copyArray.Length,
+                                            Database = Database,
+                                            Logger = logger,
+                                            TotalSize = totalSize
+                                        });
 
-                                        progress.BatchCount++;
-                                        progress.Processed += numberOfCommands;
-                                        progress.LastProcessedId = array[numberOfCommands - 1].Id;
-
-                                        onProgress(progress);
-
+                                        numberOfCommands = 0;
+                                        totalSize = 0;
                                         previousCtxReset?.Dispose();
                                         previousCtxReset = currentCtxReset;
                                         currentCtxReset = ContextPool.AllocateOperationContext(out docsCtx);
 
-                                        numberOfCommands = 0;
-                                        totalSize = 0;
+                                        if (bulkInsertCommandData != null)
+                                        {
+                                            bulkInsertCommandData = new BatchRequestParser.CommandData
+                                            {
+                                                Id = bulkInsertCommandData.Value.Id,
+                                                Type = CommandType.TimeSeriesBulkInsert,
+                                                TimeSeries = new TimeSeriesOperation
+                                                {
+                                                    SortedForBulkInsert = new SortedList<long, TimeSeriesOperation.AppendOperation>(),
+                                                    Name = bulkInsertCommandData.Value.TimeSeries.Name
+                                                }
+                                            };
+                                        }
+
+                                        var t = previousTask.ContinueWith(_ =>
+                                        {
+                                            disposable?.Dispose();
+                                            //TODO: ClearStreamsTempFiles();
+
+                                            progress.BatchCount++;
+                                            progress.Processed += copyArray.Length;
+                                            progress.LastProcessedId = copyArray[copyArray.Length - 1].Id;
+
+                                            onProgress(progress);
+
+                                        }, TaskContinuationOptions.None);
+
                                     }
 
                                     var commandData = await task;
@@ -109,6 +139,19 @@ namespace Raven.Server.Documents.Handlers
                                     if (commandData.Type == CommandType.AttachmentPUT)
                                     {
                                         commandData.AttachmentStream = await WriteAttachment(commandData.ContentLength, parser.GetBlob(commandData.ContentLength));
+                                    }
+                                    else if (commandData.Type == CommandType.TimeSeriesBulkInsert)
+                                    {
+                                        bulkInsertCommandData = commandData;
+                                    }
+                                    else if (commandData.Type == CommandType.Append)
+                                    {
+                                        if (bulkInsertCommandData.Value.TimeSeries.SortedForBulkInsert.Count == 0)
+                                            numberOfCommands++;
+
+                                        bulkInsertCommandData.Value.TimeSeries.SortedForBulkInsert[commandData.AppendOperation.Timestamp.Ticks] = commandData.AppendOperation;
+                                        totalSize += sizeof(long) + commandData.AppendOperation.Tag?.Length ?? 0 + commandData.AppendOperation.Values.Length * sizeof(double);
+                                        continue;
                                     }
 
                                     totalSize += GetSize(commandData);
@@ -228,7 +271,7 @@ namespace Raven.Server.Documents.Handlers
                 case CommandType.TimeSeries:
                 case CommandType.TimeSeriesBulkInsert:
                     // we don't know the size of the change so we are just estimating
-                    foreach (var append in commandData.TimeSeries.Appends)
+                    foreach (var append in commandData.TimeSeries.SortedForBulkInsert.Values)
                     {
                         size += sizeof(long); // DateTime
                         if (string.IsNullOrWhiteSpace(append.Tag) == false)
@@ -345,6 +388,11 @@ namespace Raven.Server.Documents.Handlers
                         case CommandType.TimeSeries:
                         case CommandType.TimeSeriesBulkInsert:
                         {
+                            if (cmd.Type == CommandType.TimeSeriesBulkInsert)
+                            {
+                                cmd.TimeSeries.Appends = new List<TimeSeriesOperation.AppendOperation>(cmd.TimeSeries.SortedForBulkInsert.Values);
+                            }
+
                             var docCollection = TimeSeriesHandler.ExecuteTimeSeriesBatchCommand.GetDocumentCollection(Database, context, cmd.Id, fromEtl: false);
                             Database.DocumentsStorage.TimeSeriesStorage.AppendTimestamp(context,
                                 cmd.Id,

@@ -71,7 +71,7 @@ namespace Raven.Server.Documents.Handlers
             #region Time Series
 
             public TimeSeriesOperation TimeSeries;
-
+            public TimeSeriesOperation.AppendOperation AppendOperation;
             #endregion
 
             #region ravendata
@@ -494,10 +494,18 @@ namespace Raven.Server.Documents.Handlers
                     case CommandPropertyName.TimeSeries:
                         while (parser.Read() == false)
                             await RefillParserBuffer(stream, buffer, parser, token);
-                        var timeSeriesOperations = await ReadJsonObject(ctx, stream, commandData.Id, parser, state, buffer, modifier, token);
-                        commandData.TimeSeries = commandData.Type == CommandType.TimeSeriesBulkInsert
-                            ? TimeSeriesOperation.ParseForBulkInsert(timeSeriesOperations)
-                            : TimeSeriesOperation.Parse(timeSeriesOperations);
+                        using (var timeSeriesOperations = await ReadJsonObject(ctx, stream, commandData.Id, parser, state, buffer, modifier, token))
+                        {
+                            commandData.TimeSeries = commandData.Type == CommandType.TimeSeriesBulkInsert
+                                ? TimeSeriesOperation.ParseForBulkInsert(timeSeriesOperations)
+                                : TimeSeriesOperation.Parse(timeSeriesOperations);
+                        }
+                        break;
+                    case CommandPropertyName.Append:
+                        while (parser.Read() == false)
+                            await RefillParserBuffer(stream, buffer, parser, token);
+                        using (var timeSeriesAppend = await ReadJsonObject(ctx, stream, commandData.Id, parser, state, buffer, modifier, token))
+                            commandData.AppendOperation = TimeSeriesOperation.AppendOperation.ParseForBulkInsert1(timeSeriesAppend);
                         break;
                     case CommandPropertyName.PatchIfMissing:
                         while (parser.Read() == false)
@@ -793,6 +801,7 @@ namespace Raven.Server.Documents.Handlers
             #region TimeSeries
 
             TimeSeries,
+            Append,
 
             #endregion
 
@@ -845,6 +854,9 @@ namespace Raven.Server.Documents.Handlers
                         state.StringBuffer[4] == (byte)'x')
                         return CommandPropertyName.Index;
                     return CommandPropertyName.NoSuchProperty;
+
+                case 6:
+                    return CommandPropertyName.Append;
 
                 case 10:
                     if (*(long*)state.StringBuffer == 8676578743001572425 &&
@@ -984,6 +996,8 @@ namespace Raven.Server.Documents.Handlers
                     return CommandType.PATCH;
 
                 case 6:
+                    return CommandType.Append;
+
                     if (*(int*)state.StringBuffer != 1162626372 ||
                      *(short*)(state.StringBuffer + 4) != 17748)
                         ThrowInvalidProperty(state, ctx);
