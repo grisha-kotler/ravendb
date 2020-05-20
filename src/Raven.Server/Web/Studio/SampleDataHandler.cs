@@ -65,7 +65,7 @@ namespace Raven.Server.Web.Studio
                         var smuggler = new DatabaseSmuggler(Database, source, destination, Database.Time,
                             options: new DatabaseSmugglerOptionsServerSide
                             {
-                                OperateOnTypes = DatabaseItemType.Documents | DatabaseItemType.RevisionDocuments | DatabaseItemType.Attachments |
+                                OperateOnTypes = DatabaseItemType.Documents | DatabaseItemType.RevisionDocuments | DatabaseItemType.Attachments | DatabaseItemType.CounterGroups |
                                                  withIndexes,
                                 SkipRevisionCreation = true
                             });
