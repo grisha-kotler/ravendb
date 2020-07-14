@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using Raven.Client.Util;
+using System.Threading;
 using Sparrow.Binary;
 using Sparrow.Collections;
 using Sparrow.Logging;
@@ -12,7 +12,6 @@ namespace Raven.Server.Utils
 {
     public class AffinityHelper
     {
-        private static readonly EasyReaderWriterLock _affinityLocker = new EasyReaderWriterLock();
         private static readonly ConcurrentSet<PoolOfThreads.PooledThread> _customAffinityThreads = new ConcurrentSet<PoolOfThreads.PooledThread>();
         private static readonly Logger _logger = LoggingSource.Instance.GetLogger<AffinityHelper>("Server");
 
@@ -54,81 +53,89 @@ namespace Raven.Server.Utils
                 bitMask = processAffinityMask.Value;
             }
 
-            using (_affinityLocker.EnterWriteLock())
-            {
-                process.ProcessorAffinity = new IntPtr(bitMask);
+            process.ProcessorAffinity = new IntPtr(bitMask);
 
-                // changing the process affinity resets the thread affinity
-                // we need to change the custom affinity threads as well
-                foreach (var pooledThread in _customAffinityThreads)
-                {
-                    try
-                    {
-                        SetCustomThreadAffinityInternal(pooledThread, bitMask);
-                    }
-                    catch (Exception e)
-                    {
-                        if (_logger.IsOperationsEnabled)
-                            _logger.Operations("Failed to set thread affinity", e);
-                    }
-                }
+            // changing the process affinity resets the thread affinity
+            // we need to change the custom affinity threads as well
+            foreach (var pooledThread in _customAffinityThreads)
+            {
+                SetCustomThreadAffinity(pooledThread);
             }
         }
 
-        internal static void ResetThreadAffinity(PoolOfThreads.PooledThread pooledThread)
+        internal static bool ResetThreadAffinity(PoolOfThreads.PooledThread pooledThread)
         {
-            using (_affinityLocker.EnterReadLock())
-            {
-                _customAffinityThreads.TryRemove(pooledThread);
+            _customAffinityThreads.TryRemove(pooledThread);
 
-                pooledThread.CurrentProcess.Refresh();
-                var affinity = pooledThread.CurrentProcess.ProcessorAffinity.ToInt64();
-                SetThreadAffinityInternal(pooledThread, affinity);
-            }
+            return ChangeThreadAffinityWithRetries(pooledThread.CurrentProcess, currentAffinity =>
+            {
+                SetThreadAffinity(pooledThread, currentAffinity);
+            });
         }
 
         internal static void SetCustomThreadAffinity(PoolOfThreads.PooledThread pooledThread)
         {
-            if (pooledThread.NumberOfCoresToReduce <= 0 && pooledThread.ThreadMask == null)
-                return;
-
-            using (_affinityLocker.EnterReadLock())
+            ChangeThreadAffinityWithRetries(pooledThread.CurrentProcess, currentAffinity =>
             {
-                _customAffinityThreads.TryAdd(pooledThread);
-
-                pooledThread.CurrentProcess.Refresh();
-                var currentAffinity = pooledThread.CurrentProcess.ProcessorAffinity.ToInt64();
                 SetCustomThreadAffinityInternal(pooledThread, currentAffinity);
+            });
+        }
+
+        private static bool ChangeThreadAffinityWithRetries(Process currentProcess, Action<long> action)
+        {
+            var retries = 10;
+
+            while (true)
+            {
+                try
+                {
+                    currentProcess.Refresh();
+                    var currentAffinity = currentProcess.ProcessorAffinity.ToInt64();
+                    action(currentAffinity);
+                    return true;
+                }
+                catch (PlatformNotSupportedException)
+                {
+                    // nothing to be done
+                    return true;
+                }
+                catch (Exception e)
+                {
+                    if (retries-- == 0)
+                    {
+                        if (_logger.IsOperationsEnabled)
+                            _logger.Operations("Failed to set thread affinity", e);
+                        return false;
+                    }
+
+                    Thread.Sleep(10);
+                }
             }
         }
 
         private static void SetCustomThreadAffinityInternal(PoolOfThreads.PooledThread pooledThread, long currentAffinity)
         {
-            Debug.Assert(_affinityLocker.IsReadLockHeld || _affinityLocker.IsWriteLockHeld);
+            var numberOfCoresToReduce = pooledThread.NumberOfCoresToReduce;
+            var threadMask = pooledThread.ThreadMask;
 
-            // we can't reduce the number of cores to a zero or negative number, in this case, just use the processor cores
-            if (pooledThread.ThreadMask == null && Bits.NumberOfSetBits(currentAffinity) <= pooledThread.NumberOfCoresToReduce)
+            if (numberOfCoresToReduce <= 0 && threadMask == null)
             {
-                try
-                {
-                    SetThreadAffinityInternal(pooledThread, currentAffinity);
-                }
-                catch (PlatformNotSupportedException)
-                {
-                    // some platforms don't support it
-                }
-                catch (Exception e)
-                {
-                    if (_logger.IsOperationsEnabled)
-                        _logger.Operations("Failed to set thread affinity", e);
-                }
-
+                _customAffinityThreads.TryRemove(pooledThread);
                 return;
             }
 
-            if (pooledThread.ThreadMask == null)
+            _customAffinityThreads.TryAdd(pooledThread);
+
+            // we can't reduce the number of cores to a zero or negative number, in this case, just use the processor cores
+            if (threadMask == null && Bits.NumberOfSetBits(currentAffinity) <= numberOfCoresToReduce)
             {
-                for (int i = 0; i < pooledThread.NumberOfCoresToReduce; i++)
+                SetThreadAffinity(pooledThread, currentAffinity);
+                return;
+            }
+
+            if (threadMask == null)
+            {
+                for (int i = 0; i < numberOfCoresToReduce; i++)
                 {
                     // remove the N least significant bits
                     // we do that because it is typical that the first cores (0, 1, etc) are more
@@ -138,28 +145,14 @@ namespace Raven.Server.Utils
             }
             else
             {
-                currentAffinity &= pooledThread.ThreadMask.Value;
+                currentAffinity &= threadMask.Value;
             }
 
-            try
-            {
-                SetThreadAffinityInternal(pooledThread, currentAffinity);
-            }
-            catch (PlatformNotSupportedException)
-            {
-                // some platforms don't support it
-            }
-            catch (Exception e)
-            {
-                if (_logger.IsOperationsEnabled)
-                    _logger.Operations("Failed to set thread affinity", e);
-            }
+            SetThreadAffinity(pooledThread, currentAffinity);
         }
 
-        private static void SetThreadAffinityInternal(PoolOfThreads.PooledThread pooledThread, long affinity)
+        private static void SetThreadAffinity(PoolOfThreads.PooledThread pooledThread, long affinity)
         {
-            Debug.Assert(_affinityLocker.IsReadLockHeld || _affinityLocker.IsWriteLockHeld);
-
             if (PlatformDetails.RunningOnMacOsx)
             {
                 // Mac OSX threads API doesn't provide a way to set thread affinity
