@@ -266,6 +266,11 @@ namespace Raven.Server.Documents.Indexes
             });
         }
 
+        public void ScheduleIndexingRun()
+        {
+            _mre.Set();
+        }
+
         protected virtual void DisposeIndex()
         {
             var needToLock = _currentlyRunningQueriesLock.IsWriteLockHeld == false;
