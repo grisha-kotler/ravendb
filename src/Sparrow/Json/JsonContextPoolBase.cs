@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
+using Sparrow.Logging;
 using Sparrow.LowMemory;
 using Sparrow.Platform;
 using Sparrow.Threading;
@@ -14,6 +16,7 @@ namespace Sparrow.Json
         where T : JsonOperationContext
     {
         private readonly object _locker = new object();
+        private static readonly Logger Logger = LoggingSource.Instance.GetLogger<JsonContextPoolBase<T>>("Memory");
 
         private bool _disposed;
 
@@ -249,9 +252,11 @@ namespace Sparrow.Json
                         _globalStack.Push(context);
                 }
             }
-            catch (OutOfMemoryException)
+            catch (Exception e)
             {
-                // let's not crash on OOM, and simply retry later
+                Debug.Assert(e is OutOfMemoryException, $"Expecting OutOfMemoryException but got: {e}");
+                if (Logger.IsOperationsEnabled)
+                    Logger.Operations("Error during cleanup.", e);
             }
             finally
             {

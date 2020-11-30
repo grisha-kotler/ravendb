@@ -7,6 +7,7 @@ using Sparrow;
 using Sparrow.Binary;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
+using Sparrow.Logging;
 using Sparrow.LowMemory;
 using Sparrow.Server;
 using Sparrow.Server.Platform;
@@ -19,6 +20,9 @@ namespace Voron.Impl
     public unsafe class EncryptionBuffersPool : ILowMemoryHandler
     {
         public static EncryptionBuffersPool Instance = new EncryptionBuffersPool();
+        private static readonly Logger Logger = LoggingSource.Instance.GetLogger<EncryptionBuffersPool>("Memory");
+
+        private readonly long _maxBufferSizeToKeepInBytes = new Size(8, SizeUnit.Megabytes).GetValue(SizeUnit.Bytes);
         private const int MaxNumberOfPagesToCache = 128; // 128 * 8K = 1 MB, beyond that, we'll not both
         private readonly MultipleUseFlag _isLowMemory = new MultipleUseFlag();
         private readonly MultipleUseFlag _isExtremelyLowMemory = new MultipleUseFlag();
@@ -237,9 +241,11 @@ namespace Voron.Impl
                     }
                 }
             }
-            catch (OutOfMemoryException)
+            catch (Exception e)
             {
-                // let's not crash on OOM, and simply retry later
+                Debug.Assert(e is OutOfMemoryException, $"Expecting OutOfMemoryException but got: {e}");
+                if (Logger.IsOperationsEnabled)
+                    Logger.Operations("Error during cleanup.", e);
             }
             finally
             {
