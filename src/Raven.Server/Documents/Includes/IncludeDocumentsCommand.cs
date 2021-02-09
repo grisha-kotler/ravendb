@@ -55,8 +55,7 @@ namespace Raven.Server.Documents.Includes
             if (_includes == null || _includes.Length == 0)
                 return;
 
-            if (_includedIds == null)
-                _includedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _includedIds ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             AddToIgnore(document.Id);
 
@@ -125,7 +124,7 @@ namespace Raven.Server.Documents.Includes
             }
         }
 
-        public void Fill(List<Document> result)
+        public void Fill(List<Document> result, bool queryReturnMissingIncludeAsNull)
         {
             if (_includedIds == null || _includedIds.Count == 0)
                 return;
@@ -142,7 +141,7 @@ namespace Raven.Server.Documents.Includes
                 try
                 {
                     includedDoc = _storage.Get(_context, includedDocId);
-                    if (includedDoc == null)
+                    if (includedDoc == null && queryReturnMissingIncludeAsNull == false)
                         continue;
                 }
                 catch (DocumentConflictException e)
