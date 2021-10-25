@@ -33,13 +33,14 @@ namespace Raven.Debug.StackTrace
             string outputPath,
             CommandLineApplication cmd,
             HashSet<uint> threadIds = null,
-            bool includeStackObjects = false)
+            bool includeStackObjects = false,
+            bool invasive = false)
         {
             if (processId == -1)
                 throw new InvalidOperationException("Uninitialized process id parameter");
 
             List<ThreadInfo> threadInfos;
-            using (var dataTarget = DataTarget.AttachToProcess(processId, attachTimeout, AttachFlag.Passive))
+            using (var dataTarget = DataTarget.AttachToProcess(processId, attachTimeout, invasive ? AttachFlag.Invasive : AttachFlag.Passive))
                 threadInfos = CreateThreadInfos(dataTarget, threadIds, includeStackObjects);
 
             if (threadIds != null || includeStackObjects)

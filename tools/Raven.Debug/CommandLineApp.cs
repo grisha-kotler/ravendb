@@ -66,6 +66,7 @@ namespace Raven.Debug
                 var outputOption = cmd.Option("--output", "Output file path", CommandOptionType.SingleValue);
                 var threadIdsOption = cmd.Option("--tid", "Thread ID to get the info about", CommandOptionType.MultipleValue);
                 var includeStackObjectsOption = cmd.Option("--includeStackObjects", "Include the stack objects", CommandOptionType.NoValue);
+                var invasiveOption = cmd.Option("--invasive", "Invasive", CommandOptionType.NoValue);
 
                 cmd.OnExecute(() =>
                 {
@@ -102,10 +103,11 @@ namespace Raven.Debug
                         output = outputOption.Value();
 
                     var includeStackObjects = includeStackObjectsOption.Values.FirstOrDefault() == "on";
+                    var invasive = invasiveOption.Values.FirstOrDefault() == "on";
 
                     try
                     {
-                        StackTracer.ShowStackTrace(pid, attachTimeout, output, cmd, threadIds, includeStackObjects);
+                        StackTracer.ShowStackTrace(pid, attachTimeout, output, cmd, threadIds, includeStackObjects, invasive);
                         return 0;
                     }
                     catch (Exception e)
