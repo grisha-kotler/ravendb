@@ -143,7 +143,7 @@ namespace Sparrow.Server.Utils
             {
                 if(Logger.IsInfoEnabled)
                     Logger.Info($"Could not get GetDiskInfo of {path}", e);
-                Console.WriteLine(e.ToString());
+                Console.WriteLine($"error: {Marshal.GetLastWin32Error()}, {e.ToString()}");
                 return null;
             }
         }
