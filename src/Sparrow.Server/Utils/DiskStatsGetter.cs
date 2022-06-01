@@ -108,29 +108,54 @@ namespace Sparrow.Server.Utils
             public PrevInfo Prev;
         }
 
-        private DiskStatsRawResult GetDiskInfo(string path)
+        internal static DiskStatsRawResult GetDiskInfo(string path)
         {
             try
             {
                 // https://github.com/whotwagner/statx-fun/blob/master/statx.h
                 if (Syscall.statx(0, path, 0, 0x00000fffU, out var buf) != 0)
                 {
-                    if(Logger.IsInfoEnabled)
+                    if (Logger.IsInfoEnabled)
                         Logger.Info($"Could not get statx of {path} - {Marshal.GetLastWin32Error()}");
                     return null;
                 }
 
-                var statPath = $"/sys/dev/block/{buf.stx_dev_major}:{buf.stx_dev_minor}/stat";
+                Console.WriteLine($"Major: {buf.stx_dev_major}, Minor: {buf.stx_dev_minor}");
+
+                if (Syscall.stat(path, out var statBuf) != 0)
+                {
+                    Console.WriteLine($"{path}, error:{Marshal.GetLastWin32Error()}");
+                    if (Logger.IsInfoEnabled)
+                        Logger.Info($"Could not get stat of {path} - {Marshal.GetLastWin32Error()}");
+                    return null;
+                }
+
+                var major = GetMajor(statBuf.st_dev);
+                var minor = GetMinor(statBuf.st_dev);
+                Console.WriteLine($"New Major: {major}, New Minor: {minor}");
+
+                var statPath = $"/sys/dev/block/{major}:{minor}/stat";
                 using var reader = File.OpenRead(statPath);
-            
+
                 return ReadParse(reader);
             }
             catch (Exception e)
             {
                 if(Logger.IsInfoEnabled)
                     Logger.Info($"Could not get GetDiskInfo of {path}", e);
+                Console.WriteLine(e.ToString());
                 return null;
             }
+        }
+
+        private static UInt32 GetMajor(UInt64 st_dev)
+        {
+            return (UInt32)((st_dev >> 8) & 0xfff) | (UInt32)(((uint)st_dev >> 32) & ~0xfff);
+        }
+
+        private static UInt32 GetMinor(UInt64 st_dev)
+        {
+            return ((uint)st_dev & 0xff) | (UInt32)((uint)(st_dev >> 12) & ~0xff);
         }
 
         private static DiskStatsRawResult ReadParse(FileStream buffer)
@@ -206,7 +231,7 @@ namespace Sparrow.Server.Utils
             };
         }
         
-        private record DiskStatsRawResult
+        internal record DiskStatsRawResult
         {
             public long IoReadOperations { get; init; }
             public long IoWriteOperations { get; init; }

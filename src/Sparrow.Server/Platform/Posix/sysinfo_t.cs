@@ -91,4 +91,33 @@ namespace Sparrow.Server.Platform.Posix
         public UInt32 stx_dev_minor;        // Minor ID
         private unsafe fixed UInt64 __spare2[14];
     }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct Stat
+    {
+        public UInt64 st_dev;              // ID of device containing file
+        /*UInt64 st_ino;              // Inode number
+        UInt64 st_mode;             // File type and mode
+        nlink_t st_nlink;           // Number of hard links
+        uid_t st_uid;               // User ID of owner
+        gid_t st_gid;               // Group ID of owner
+        dev_t st_rdev;              // Device ID (if special file)
+        off_t st_size;              // Total size, in bytes
+        blksize_t st_blksize;       // Block size for filesystem I/O
+        blkcnt_t st_blocks;         // Number of 512B blocks allocated
+
+        /* Since Linux 2.6, the kernel supports nanosecond
+           precision for the following timestamp fields.
+           For the details before Linux 2.6, see NOTES. #1#
+
+        public timespec st_atim;    // Time of last access
+        public timespec st_mtim;    // Time of last modification
+        public timespec st_ctim;    // Time of last status change*/
+    }
+
+    /*public struct timespec
+    {
+        time_t tv_sec;              // seconds
+        long tv_nsec;               // nanoseconds
+    };*/
 }
