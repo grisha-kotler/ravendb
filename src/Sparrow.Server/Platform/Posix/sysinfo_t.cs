@@ -114,17 +114,17 @@ namespace Sparrow.Server.Platform.Posix
         public int st_blksize;       // Block size for filesystem I/O - TODO
         public int st_blocks;         // Number of 512B blocks allocated - CHECKED
         */
-        uint st_dev;
-        ushort st_ino;
-        ushort st_mode;
-        short st_nlink;
-        short st_uid;
-        short st_gid;
-        uint st_rdev;
-        long st_size;
-        long st_atime;
-        long st_mtime;
-        long st_ctime;
+        public uint st_dev;
+        public ushort st_ino;
+        public ushort st_mode;
+        public short st_nlink;
+        public short st_uid;
+        public short st_gid;
+        public uint st_rdev;
+        public long st_size;
+        public long st_atime;
+        public long st_mtime;
+        public long st_ctime;
 
     }
 
