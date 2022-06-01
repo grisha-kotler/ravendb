@@ -95,24 +95,24 @@ namespace Sparrow.Server.Platform.Posix
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct Stat
     {
-        public ulong st_dev;              // ID of device containing file
-        public ulong st_ino;              // Inode number
-        public ulong st_mode;             // File type and mode
-        public ulong st_nlink;           // Number of hard links
-        public long st_uid;               // User ID of owner
-        public long st_gid;               // Group ID of owner
-        public ulong st_rdev;              // Device ID (if special file)
-        public ulong st_size;              // Total size, in bytes
+        public uint st_dev;              // ID of device containing file- TODO
+        public uint st_ino;              // Inode number- TODO
+        public uint st_mode;             // File type and mode- TODO
+        public uint st_nlink;           // Number of hard links- TODO
+        public uint st_uid;               // User ID of owner- TODO
+        public uint st_gid;               // Group ID of owner- TODO
+        public uint st_rdev;              // Device ID (if special file)- TODO
+        public int st_size;              // Total size, in bytes- TODO
         /* Since Linux 2.6, the kernel supports nanosecond
            precision for the following timestamp fields.
            For the details before Linux 2.6, see NOTES. */
 
-        public timespec st_atim;    // Time of last access
-        public timespec st_mtim;    // Time of last modification
-        public timespec st_ctim;    // Time of last status change
+        public int st_atim;    // Time of last access- TODO
+        public int st_mtim;    // Time of last modification- TODO
+        public int st_ctim;    // Time of last status change- TODO
 
-        public long st_blksize;       // Block size for filesystem I/O
-        public long st_blocks;         // Number of 512B blocks allocated
+        public int st_blksize;       // Block size for filesystem I/O - TODO
+        public int st_blocks;         // Number of 512B blocks allocated - CHECKED
 
         
     }
