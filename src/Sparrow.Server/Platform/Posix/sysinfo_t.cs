@@ -89,10 +89,10 @@ namespace Sparrow.Server.Platform.Posix
            containing the filesystem where the file resides */
         public UInt32 stx_dev_major;        // Major ID
         public UInt32 stx_dev_minor;        // Minor ID
-        private unsafe fixed UInt64 __spare2[14];
+        //private unsafe fixed UInt64 __spare2[14];
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    [StructLayout(LayoutKind.Sequential)]
     public struct Stat
     {
         /*public uint st_dev;              // ID of device containing file- TODO
