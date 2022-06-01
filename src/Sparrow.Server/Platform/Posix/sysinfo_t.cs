@@ -103,15 +103,23 @@ namespace Sparrow.Server.Platform.Posix
         public long st_gid;               // Group ID of owner
         public ulong st_rdev;              // Device ID (if special file)
         public ulong st_size;              // Total size, in bytes
-        public long st_blksize;       // Block size for filesystem I/O
-        public long st_blocks;         // Number of 512B blocks allocated
-
         /* Since Linux 2.6, the kernel supports nanosecond
            precision for the following timestamp fields.
            For the details before Linux 2.6, see NOTES. */
 
-        public long st_atim;    // Time of last access
-        public long st_mtim;    // Time of last modification
-        public long st_ctim;    // Time of last status change
+        public timespec st_atim;    // Time of last access
+        public timespec st_mtim;    // Time of last modification
+        public timespec st_ctim;    // Time of last status change
+
+        public long st_blksize;       // Block size for filesystem I/O
+        public long st_blocks;         // Number of 512B blocks allocated
+
+        
     }
+
+    public struct timespec
+    {
+        long tv_sec;             // seconds
+        long tv_nsec;            // nanoseconds
+    };
 }
