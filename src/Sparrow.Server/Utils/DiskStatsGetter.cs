@@ -148,14 +148,14 @@ namespace Sparrow.Server.Utils
             }
         }
 
-        private static UInt32 GetMajor(UInt64 st_dev)
+        private static UInt32 GetMajor(uint st_dev)
         {
-            return (UInt32)((st_dev >> 8) & 0xfff) | (UInt32)(((uint)st_dev >> 32) & ~0xfff);
+            return (UInt32)((st_dev >> 8) & 0xfff) | (UInt32)((st_dev >> 32) & ~0xfff);
         }
 
-        private static UInt32 GetMinor(UInt64 st_dev)
+        private static UInt32 GetMinor(uint st_dev)
         {
-            return ((uint)st_dev & 0xff) | (UInt32)((uint)(st_dev >> 12) & ~0xff);
+            return ((uint)st_dev & 0xff) | (UInt32)(st_dev >> 12 & ~0xff);
         }
 
         private static DiskStatsRawResult ReadParse(FileStream buffer)

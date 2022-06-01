@@ -95,7 +95,7 @@ namespace Sparrow.Server.Platform.Posix
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct Stat
     {
-        public uint st_dev;              // ID of device containing file- TODO
+        /*public uint st_dev;              // ID of device containing file- TODO
         public uint st_ino;              // Inode number- TODO
         public uint st_mode;             // File type and mode- TODO
         public uint st_nlink;           // Number of hard links- TODO
@@ -105,7 +105,7 @@ namespace Sparrow.Server.Platform.Posix
         public int st_size;              // Total size, in bytes- TODO
         /* Since Linux 2.6, the kernel supports nanosecond
            precision for the following timestamp fields.
-           For the details before Linux 2.6, see NOTES. */
+           For the details before Linux 2.6, see NOTES. #1#
 
         public int st_atim;    // Time of last access- TODO
         public int st_mtim;    // Time of last modification- TODO
@@ -113,8 +113,19 @@ namespace Sparrow.Server.Platform.Posix
 
         public int st_blksize;       // Block size for filesystem I/O - TODO
         public int st_blocks;         // Number of 512B blocks allocated - CHECKED
+        */
+        uint st_dev;
+        ushort st_ino;
+        ushort st_mode;
+        short st_nlink;
+        short st_uid;
+        short st_gid;
+        uint st_rdev;
+        long st_size;
+        long st_atime;
+        long st_mtime;
+        long st_ctime;
 
-        
     }
 
     public struct timespec
