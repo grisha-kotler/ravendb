@@ -341,6 +341,17 @@ namespace Sparrow.Json
             throw new InvalidCastException($"Couldn't convert {valueAsString} (LazyStringValue) to float");
         }
 
+#if FEATURE_DATEONLY_TIMEONLY_SUPPORT
+        public static explicit operator DateOnly(LazyStringValue self)
+        {
+            var valueAsString = (string)self;
+            if (DateOnly.TryParse(valueAsString, out DateOnly result))
+                return result;
+
+            throw new InvalidCastException($"Couldn't convert {valueAsString} (LazyStringValue) to DateOnly");
+        }
+#endif
+
         IEnumerator IEnumerable.GetEnumerator()
         {
             return GetEnumerator();
