@@ -541,8 +541,14 @@ namespace Raven.Server.Utils
             if (result == LazyStringParser.Result.DateTimeOffset)
                 return dto;
 
+            if (LazyStringParser.TryParseTimeOnly(buffer, size, out TimeOnly to))
+                return to;
+
+            if (LazyStringParser.TryParseDateOnly(buffer, size, out DateOnly @do))
+                return @do;
+
             if (LazyStringParser.TryParseTimeSpan(buffer, size, out TimeSpan ts))
-                    return ts;
+                return ts;
 
             return value; // ensure that the decompressed lazy string value is returned
         }

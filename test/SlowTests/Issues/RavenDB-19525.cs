@@ -29,13 +29,15 @@ namespace SlowTests.Issues
                     Values = new Dictionary<string, object>
                     {
                         { "DateOnly", new DateOnly(2022, 8, 11) },
-                        { "TimeOnly", new TimeOnly(13, 55, 30) }
+                        { "TimeOnly", new TimeOnly(13, 55, 30) },
+                        { "TimeSpan", new TimeSpan(13, 55, 30) }
                     }
                 });
                 session.SaveChanges();
             }
 
             Indexes.WaitForIndexing(store);
+            WaitForUserToContinueTheTest(store);
 
             var indexes = await store.Maintenance.SendAsync(new GetIndexErrorsOperation());
             Assert.Empty(indexes.Where(idx => idx.Errors.Any()));
@@ -49,7 +51,8 @@ namespace SlowTests.Issues
                     select new
                     {
                         DateOnly = (DateOnly)entity.Values["DateOnly"],
-                        TimeOnly = (TimeOnly)entity.Values["TimeOnly"]
+                        TimeOnly = (TimeOnly)entity.Values["TimeOnly"],
+                        TimeSpan = (TimeSpan)entity.Values["TimeSpan"]
                     };
             }
         }
