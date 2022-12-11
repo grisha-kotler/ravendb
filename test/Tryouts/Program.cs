@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using FastTests.Blittable;
@@ -9,6 +10,7 @@ using SlowTests.Issues;
 using SlowTests.MailingList;
 using SlowTests.Rolling;
 using SlowTests.Server.Documents.ETL.Raven;
+using SlowTests.Voron;
 using StressTests.Issues;
 using Tests.Infrastructure;
 
@@ -29,10 +31,25 @@ namespace Tryouts
                  Console.WriteLine($"Starting to run {i}");
                 try
                 {
-                    using (var testOutputHelper = new ConsoleTestOutputHelper())
-                    using (var test = new ElectionTests(testOutputHelper))
+                    var dictionary = new Dictionary<string, int>();
+                    dictionary.Add("a", 3);
+                    dictionary.Add("c", 3);
+                    dictionary.Add("d", 3);
+
+                    /*foreach (var VARIABLE in new HashSet<string>(dictionary.Keys))
                     {
-                         await test.CanElectOnDivergence4();
+                        dictionary.Add(new string('a', 3), 3);
+                    }*/
+
+                    using (var testOutputHelper = new ConsoleTestOutputHelper())
+                    //using (var test = new RavenDB_19016(testOutputHelper))
+                    using (var test = new MultiAdds(testOutputHelper))
+                    {
+                        //await test.Can_Index_Nested_Document_Change();
+                        //await test.Can_Index_Nested_CompareExchange_Change();
+                        test.MultiAdds_And_MultiDeletes_After_Causing_PageSplit_DoNot_Fail();
+
+
                     }
                 }
                 catch (Exception e)

@@ -56,6 +56,9 @@ namespace Voron.Data.BTrees
                 return;
             }
 
+            if (AlreadyExists(page, key, value)) //we want to save on the *ModifyPage* if the value is already there...
+                return;
+
             page = ModifyPage(page);
 
             var item = page.GetNode(page.LastSearchPosition);
@@ -75,23 +78,6 @@ namespace Voron.Data.BTrees
             var nestedPagePtr = DirectAccessFromHeader(item);
 
             var nestedPage = new TreePage(nestedPagePtr, (ushort)GetDataSize(item));
-
-            var existingItem = nestedPage.Search(_llt, value);
-            if (nestedPage.LastMatch != 0)
-                existingItem = null;// not an actual match, just greater than
-
-            if (existingItem != null)
-            {
-                // maybe same value added twice?
-                Slice tmpKey;
-                using (TreeNodeHeader.ToSlicePtr(_llt.Allocator, item, out tmpKey))
-                {
-                    if (SliceComparer.Equals(tmpKey, value))
-                        return; // already there, turning into a no-op
-                }
-
-                nestedPage.RemoveNode(nestedPage.LastSearchPosition);
-            }
 
             if (nestedPage.HasSpaceFor(_llt, value, 0))
             {
@@ -137,6 +123,21 @@ namespace Voron.Data.BTrees
             _tx.AddMultiValueTree(this, key, tree);
             // we need to record that we switched to tree mode here, so the next call wouldn't also try to create the tree again
             DirectAdd(key, sizeof(TreeRootHeader), TreeNodeFlags.MultiValuePageRef,out _).Dispose();
+        }
+
+        private bool AlreadyExists(TreePage page, Slice key, Slice value)
+        {
+            var item = page.GetNode(page.LastSearchPosition);
+            if (item->Flags == TreeNodeFlags.MultiValuePageRef)
+            {
+                var existingTree = OpenMultiValueTree(key, item);
+                return existingTree.Exists(value);
+            }
+
+            var nestedPagePtr = DirectAccessFromHeader(item);
+            var nestedPage = new TreePage(nestedPagePtr, (ushort)GetDataSize(item));
+            nestedPage.Search(_llt, value);
+            return nestedPage.LastMatch == 0;
         }
 
         private void ExpandMultiTreeNestedPageSize(Slice key, Slice value, byte* nestedPagePtr, ushort newSize, int currentSize)

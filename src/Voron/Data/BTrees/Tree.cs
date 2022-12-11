@@ -1072,6 +1072,12 @@ namespace Voron.Data.BTrees
             return new TreeIterator(this, _llt, prefetch);
         }
 
+        public bool Exists(Slice key)
+        {
+            var p = FindPageFor(key, out _);
+            return p.LastMatch != 0;
+        }
+
         public ReadResult Read(Slice key)
         {
             TreeNodeHeader* node;
