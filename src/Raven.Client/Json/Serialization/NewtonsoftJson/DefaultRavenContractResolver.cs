@@ -39,6 +39,14 @@ namespace Raven.Client.Json.Serialization.NewtonsoftJson
         [ThreadStatic]
         internal static object RootEntity;
 
+        private static readonly bool IsNetFramework;
+
+        static DefaultRavenContractResolver()
+        {
+            var description = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription;
+            IsNetFramework = description.StartsWith(".NET Framework", StringComparison.OrdinalIgnoreCase);
+        }
+
         public DefaultRavenContractResolver(ISerializationConventions conventions)
         {
             if (conventions == null)
@@ -106,6 +114,14 @@ namespace Raven.Client.Json.Serialization.NewtonsoftJson
         {
             _currentExtensionGetter += getter;
             return new ClearExtensionData(null, getter);
+        }
+
+        protected override JsonContract CreateContract(Type objectType)
+        {
+            if (IsNetFramework)
+                GetSerializableMembers(objectType);
+
+            return base.CreateContract(objectType);
         }
 
         protected override JsonObjectContract CreateObjectContract(Type objectType)
