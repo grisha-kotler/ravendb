@@ -61,7 +61,8 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
 
         static LuceneIndexReadOperation()
         {
-            _luceneCleaner = new LuceneCleaner();
+            //https://issues.hibernatingrhinos.com/issue/RavenDB-20565/AccessViolationException-for-a-query-with-order-by
+            //_luceneCleaner = new LuceneCleaner();
         }
 
         public LuceneIndexReadOperation(Index index, LuceneVoronDirectory directory, LuceneIndexSearcherHolder searcherHolder, QueryBuilderFactories queryBuilderFactories, Transaction readTransaction, IndexQueryServerSide query)
