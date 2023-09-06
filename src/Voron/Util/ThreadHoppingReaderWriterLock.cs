@@ -90,16 +90,23 @@ namespace Voron.Util
             {
                 bool lockTaken = false;
                 _readWaitLock.TryEnter(tracker.RemainingMilliseconds, ref lockTaken);
+
                 try
                 {
                     if (lockTaken == false)
                         return false;
 
+                    ForTestingPurposes?.BeforeResetOfReaderWait?.Invoke();
+
                     if (_readerWait.IsSet)
                         _readerWait.Reset();
 
                     if (TryEnterReadLockCore())
+                    {
+                        // we got the reader lock, we can release all the other readers that might be waiting
+                        _readerWait.Set();
                         return true;
+                    }
                 }
                 finally
                 {
@@ -107,11 +114,14 @@ namespace Voron.Util
                         _readWaitLock.Exit(false);
                 }
 
+                ForTestingPurposes?.BeforeReaderWriterWait?.Invoke();
+
                 _readerWait.Wait(tracker.RemainingMilliseconds);
 
                 if (TryEnterReadLockCore())
                     return true;
             }
+
             return false;
         }
 
@@ -179,5 +189,20 @@ namespace Voron.Util
             public bool IsExpired => RemainingMilliseconds == 0;
         }
 
+        internal TestingStuff ForTestingPurposes;
+
+        internal TestingStuff ForTestingPurposesOnly()
+        {
+            if (ForTestingPurposes != null)
+                return ForTestingPurposes;
+
+            return ForTestingPurposes = new TestingStuff();
+        }
+
+        internal class TestingStuff
+        {
+            internal Action BeforeResetOfReaderWait;
+            internal Action BeforeReaderWriterWait;
+        }
     }
 }
