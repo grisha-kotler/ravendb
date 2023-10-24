@@ -644,7 +644,7 @@ namespace Raven.Server.Documents.PeriodicBackup
                                 $"took: {totalSw.ElapsedMilliseconds:#,#;;0}ms");
                     }
 
-                    RenameFile(backupFilePath, tempBackupFilePath);
+                    RenameFile(tempBackupFilePath, backupFilePath);
 
                     status.LocalBackup.Exception = null;
                 }
@@ -671,7 +671,7 @@ namespace Raven.Server.Documents.PeriodicBackup
             return internalBackupResult;
         }
 
-        protected virtual void RenameFile(string backupFilePath, string tempBackupFilePath)
+        protected virtual void RenameFile(string tempBackupFilePath, string backupFilePath)
         {
             IOExtensions.RenameFile(tempBackupFilePath, backupFilePath);
         }
