@@ -23,6 +23,7 @@ public abstract class DirectUploadStream<T> : Stream where T : IDirectUploader
     private MemoryStream _uploadStream = new();
     private Task _uploadTask;
     private bool _disposed;
+    private bool _abortUpload;
 
     protected T Client { get; }
 
@@ -40,6 +41,8 @@ public abstract class DirectUploadStream<T> : Stream where T : IDirectUploader
         Client = parameters.ClientFactory.Invoke(progress);
         _multiPartUploader = Client.GetUploader(parameters.Key, parameters.Metadata);
         _multiPartUploader.Initialize();
+
+        parameters.OnBackupException += () => _abortUpload = true;
     }
 
     public override void Flush()
@@ -107,6 +110,9 @@ public abstract class DirectUploadStream<T> : Stream where T : IDirectUploader
 
     protected override void Dispose(bool disposing)
     {
+        if (_abortUpload)
+            return;
+
         if (_disposed)
             return;
 
@@ -168,6 +174,8 @@ public abstract class DirectUploadStream<T> : Stream where T : IDirectUploader
         public RetentionPolicyBaseParameters RetentionPolicyParameters { get; set; }
 
         public CloudUploadStatus CloudUploadStatus { get; set; }
+
+        public Action OnBackupException { get; set; }
 
         public Action<string> OnProgress { get; set; }
     }
