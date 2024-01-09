@@ -88,8 +88,8 @@ namespace Raven.Server.Config.Categories
         [Description("Number of minutes, after which we will switch to a new responsible node for backup.")]
         [DefaultValue(30 * 60)]
         [TimeUnit(TimeUnit.Seconds)]
-        [ConfigurationEntry("Backup.MoveToNewResponsibleNodeInSec", ConfigurationEntryScope.ServerWideOrPerDatabase)]
-        public TimeSetting MoveToNewResponsibleNode { get; set; }
+        [ConfigurationEntry("Backup.MoveToNewResponsibleNodeGracePeriodInSec", ConfigurationEntryScope.ServerWideOnly)]
+        public TimeSetting MoveToNewResponsibleNodeGracePeriod { get; set; }
 
         public override void Initialize(IConfigurationRoot settings, HashSet<string> settingsNames, IConfigurationRoot serverWideSettings, HashSet<string> serverWideSettingsNames, ResourceType type, string resourceName)
         {

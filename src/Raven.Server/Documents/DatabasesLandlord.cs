@@ -928,9 +928,15 @@ namespace Raven.Server.Documents
         protected RavenConfiguration CreateConfiguration(DatabaseRecord record)
         {
             Debug.Assert(_serverStore.Disposed == false, "_serverStore.Disposed == false");
-            var config = RavenConfiguration.CreateForDatabase(_serverStore.Configuration, record.DatabaseName);
 
-            foreach (var setting in record.Settings)
+            return CreateConfiguration(_serverStore.Configuration, record.DatabaseName, record.Settings);
+        }
+
+        public static RavenConfiguration CreateConfiguration(RavenConfiguration serverStoreConfiguration, string databaseName, Dictionary<string, string> databaseRecordSettings)
+        {
+            var config = RavenConfiguration.CreateForDatabase(serverStoreConfiguration, databaseName);
+
+            foreach (var setting in databaseRecordSettings)
                 config.SetSetting(setting.Key, setting.Value);
 
             config.Initialize();
