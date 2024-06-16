@@ -1,5 +1,6 @@
 using System;
 using Raven.Client.Documents.Operations.Backups;
+using Raven.Client.Util;
 using Raven.Server.Commercial;
 using Sparrow.Logging;
 using BackupConfiguration = Raven.Server.Config.Categories.BackupConfiguration;
@@ -80,6 +81,25 @@ namespace Raven.Server.Documents.PeriodicBackup
 
             if (logger.IsOperationsEnabled)
                 logger.Operations($"Starting backup task '{backupName}'");
+        }
+
+        public DisposableAction TryStartDatabaseForBackup()
+        {
+            lock (_locker)
+            {
+                if (_concurrentBackups <= 0)
+                    return null;
+
+                _concurrentBackups--;
+
+                return new DisposableAction(() =>
+                {
+                    lock (_locker)
+                    {
+                        _concurrentBackups--;
+                    }
+                });
+            }
         }
 
         public void FinishBackup(string backupName, PeriodicBackupStatus backupStatus, TimeSpan? elapsed, Logger logger)
