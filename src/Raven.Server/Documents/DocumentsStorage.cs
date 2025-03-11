@@ -866,11 +866,11 @@ namespace Raven.Server.Documents
                 {
                     token.ThrowIfCancellationRequested();
 
-                    var document = TableValueToDocument(context, ref result.Value.Reader, fields);
-                    string documentId = document.Id;
+                    var lazyDocumentId = TableValueToId(context, (int)DocumentsTable.Id, ref result.Value.Reader);
+                    string documentId = lazyDocumentId;
                     if (documentId.StartsWith(idPrefix, StringComparison.OrdinalIgnoreCase) == false)
                     {
-                        document.Dispose();
+                        lazyDocumentId.Dispose();
                         break;
                     }
 
@@ -885,7 +885,7 @@ namespace Raven.Server.Documents
                             if (skip != null)
                                 skip.Value++;
 
-                            document.Dispose();
+                            lazyDocumentId.Dispose();
                             continue;
                         }
                     }
@@ -896,16 +896,18 @@ namespace Raven.Server.Documents
                             skip.Value++;
 
                         start--;
-                        document.Dispose();
+                        lazyDocumentId.Dispose();
                         continue;
                     }
 
                     if (take-- <= 0)
                     {
-                        document.Dispose();
+                        lazyDocumentId.Dispose();
                         yield break;
                     }
 
+                    var document = TableValueToDocument(context, ref result.Value.Reader, fields & ~DocumentFields.Id);
+                    document.Id = lazyDocumentId;
                     yield return document;
                 }
             }
