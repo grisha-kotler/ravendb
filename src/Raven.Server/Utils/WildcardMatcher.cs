@@ -11,35 +11,29 @@ namespace Raven.Server.Utils
 {
     public class WildcardMatcher
     {
-        private static readonly char[] Separator = { '|' };
-
-        public static bool Matches(string pattern, string input)
+        public static bool Matches(PreprocessedPattern preprocessed, string input)
         {
-            if (string.IsNullOrEmpty(pattern))
+            if (preprocessed.Patterns.Length == 0)
                 return true;
 
-            return MatchesImpl(pattern, input);
+            return MatchesImpl(preprocessed, input);
         }
 
-        public static bool MatchesExclusion(string pattern, string input)
+        public static bool MatchesExclusion(PreprocessedPattern preprocessed, string input)
         {
-            // null or empty means no match
-            if (string.IsNullOrEmpty(pattern))
+            // empty means no match
+            if (preprocessed.Patterns.Length == 0)
                 return false;
 
-            return MatchesImpl(pattern, input);
+            return MatchesImpl(preprocessed, input);
         }
 
-        private static bool MatchesImpl(string pattern, string input)
+        private static bool MatchesImpl(PreprocessedPattern preprocessed, string input)
         {
-            var patterns = pattern.Split(Separator, StringSplitOptions.RemoveEmptyEntries);
-            if (pattern.Length == 0)
-                return false;
-
-            return patterns.Any(p => MatchesImpl(p, input, 0, 0));
+            return preprocessed.Patterns.Any(p => MatchesImpl(p.Pattern, input, 0, 0, p.MinLengths));
         }
 
-        private static bool MatchesImpl(string pattern, string input, int patternPos, int inputPos)
+        private static bool MatchesImpl(string pattern, string input, int patternPos, int inputPos, int[] minLengths)
         {
             if (string.IsNullOrEmpty(pattern))
                 return true;
@@ -54,7 +48,11 @@ namespace Raven.Server.Utils
             {
                 if (patternPos >= pattern.Length)
                     return false; // input has more than the pattern
-                var currentPatternChar = char.ToUpperInvariant(pattern[patternPos]);
+
+                if (input.Length - i < minLengths[patternPos])
+                    return false; // early exit: check if remaining input is not long enough
+
+                var currentPatternChar = pattern[patternPos];
                 var currentInputChar = char.ToUpperInvariant(input[i]);
 
                 switch (currentPatternChar)
@@ -69,7 +67,7 @@ namespace Raven.Server.Utils
                                 nextPatternChar == '?')
                             { // we have a match for the next part, let us see if it is an actual match
 
-                                if (MatchesImpl(pattern, input, patternPos + 1, i))
+                                if (MatchesImpl(pattern, input, patternPos + 1, i, minLengths))
                                     return true;
                             }
                         }
@@ -87,6 +85,60 @@ namespace Raven.Server.Utils
 
             return patternPos == pattern.Length ||
                    (patternPos == pattern.Length - 1 && pattern[patternPos] == '*');
+        }
+
+        public class PatternInfo
+        {
+            public string Pattern { get; }
+            public int[] MinLengths { get; }
+
+            public PatternInfo(string pattern)
+            {
+                Pattern = pattern;
+                MinLengths = PrecomputeMinimumLengths(pattern);
+            }
+
+            private static int[] PrecomputeMinimumLengths(string pattern)
+            {
+                int n = pattern.Length;
+                int[] minLengths = new int[n + 1];
+
+                minLengths[n] = 0;
+
+                for (int i = n - 1; i >= 0; i--)
+                {
+                    char c = pattern[i];
+                    if (c == '*')
+                    {
+                        minLengths[i] = minLengths[i + 1];
+                    }
+                    else
+                    {
+                        minLengths[i] = minLengths[i + 1] + 1;
+                    }
+                }
+
+                return minLengths;
+            }
+        }
+
+        public class PreprocessedPattern
+        {
+            private static readonly char[] Separator = { '|' };
+
+            public PatternInfo[] Patterns { get; }
+
+            public PreprocessedPattern(string pattern)
+            {
+                if (string.IsNullOrEmpty(pattern))
+                {
+                    Patterns = [];
+                    return;
+                }
+
+                var subPatterns = pattern.Split(Separator, StringSplitOptions.RemoveEmptyEntries);
+                Patterns = subPatterns.Select(p => new PatternInfo(p.ToUpperInvariant())).ToArray();
+            }
         }
     }
 }

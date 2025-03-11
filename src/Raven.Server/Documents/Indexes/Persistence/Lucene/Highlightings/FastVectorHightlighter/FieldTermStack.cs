@@ -117,15 +117,18 @@ namespace Lucene.Net.Search.Vectorhighlight
             // just return to make null snippet if un-matched fieldName specified when fieldMatch == true
             if (termSet == null)
                 return;
-            var needwildcard = termSet.Any(x => x.IndexOfAny(new char[] { '*', '?' }) != -1);
+            var needWildcard = termSet.Any(x => x.IndexOfAny(new char[] { '*', '?' }) != -1);
+            List<WildcardMatcher.PreprocessedPattern> preprocessedPatterns = null;
+
             foreach (String term in tpv.GetTerms())
             {
-                if (needwildcard)
+                if (needWildcard)
                 {
-                    if (termSet.Any(ts => WildcardMatcher.Matches(ts, term)) == false)
+                    preprocessedPatterns ??= termSet.Select(ts => new WildcardMatcher.PreprocessedPattern(ts)).ToList();
+                    if (preprocessedPatterns.Any(p => WildcardMatcher.Matches(p, term)) == false)
                         continue;
                 }
-                else if (!termSet.Contains(term))
+                else if (termSet.Contains(term) == false)
                     continue;
 
                 int index = tpv.IndexOf(term);

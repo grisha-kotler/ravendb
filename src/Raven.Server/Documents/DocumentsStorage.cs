@@ -855,6 +855,8 @@ namespace Raven.Server.Documents
 
             var isStartAfter = string.IsNullOrWhiteSpace(startAfterId) == false;
             var needsWildcardMatch = string.IsNullOrEmpty(matches) == false || string.IsNullOrEmpty(exclude) == false;
+            WildcardMatcher.PreprocessedPattern matchesPattern = null;
+            WildcardMatcher.PreprocessedPattern excludePattern = null;
 
             var startAfterSlice = Slices.Empty;
             using (DocumentIdWorker.GetSliceFromId(context, idPrefix, out Slice prefixSlice))
@@ -874,8 +876,11 @@ namespace Raven.Server.Documents
 
                     if (needsWildcardMatch)
                     {
+                        matchesPattern ??= new WildcardMatcher.PreprocessedPattern(matches);
+                        excludePattern ??= new WildcardMatcher.PreprocessedPattern(exclude);
+
                         var idTest = documentId.Substring(idPrefix.Length);
-                        if (WildcardMatcher.Matches(matches, idTest) == false || WildcardMatcher.MatchesExclusion(exclude, idTest))
+                        if (WildcardMatcher.Matches(matchesPattern, idTest) == false || WildcardMatcher.MatchesExclusion(excludePattern, idTest))
                         {
                             if (skip != null)
                                 skip.Value++;
