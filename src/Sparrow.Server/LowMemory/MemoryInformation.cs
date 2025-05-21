@@ -581,6 +581,12 @@ namespace Sparrow.LowMemory
 
         public static long GetSharedCleanInBytes(out long workingSet, out long pageFileUsage)
         {
+            // The used space in scratch buffers represents dirty memory. While we cannot precisely determine how much
+            // of it resides in physical memory, this approach provides a highly reliable approximation of the shared
+            // dirty memory footprint.
+            var sharedDirty = GetTotalScratchAllocatedMemoryInBytes();
+            long privateUsage;
+
             if (WindowsSupportsMemoryCountersEx2)
             {
                 if (Win32MemoryMethods.GetProcessMemoryInfo(ProcessHandle, out Win32MemoryMethods.PROCESS_MEMORY_COUNTERS_EX2 memCounters, (uint)Marshal.SizeOf(typeof(Win32MemoryMethods.PROCESS_MEMORY_COUNTERS_EX2))) == false)
@@ -590,7 +596,7 @@ namespace Sparrow.LowMemory
 
                 workingSet = (long)memCounters.WorkingSetSize;
                 pageFileUsage = (long)memCounters.PagefileUsage;
-                return workingSet - (long)memCounters.PrivateWorkingSetSize;
+                privateUsage = (long)memCounters.PrivateWorkingSetSize;
             }
             else
             {
@@ -601,8 +607,10 @@ namespace Sparrow.LowMemory
 
                 workingSet = (long)memCounters.WorkingSetSize;
                 pageFileUsage = (long)memCounters.PagefileUsage;
-                return GetLegacySharedClean(workingSet);
+                privateUsage = AbstractLowMemoryMonitor.GetUnmanagedAllocationsInBytes() + AbstractLowMemoryMonitor.GetManagedMemoryInBytes();
             }
+
+            return workingSet - privateUsage - sharedDirty;
         }
 
         private static long GetLegacySharedClean(long workingSet)
