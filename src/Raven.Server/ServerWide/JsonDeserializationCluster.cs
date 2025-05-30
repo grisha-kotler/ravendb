@@ -39,6 +39,7 @@ using Raven.Server.ServerWide.Commands.Subscriptions;
 using Sparrow.Json;
 using Raven.Client.Documents.Operations.AI;
 using Raven.Server.ServerWide.Commands.AI;
+using Raven.Client.Documents.Operations.SchemaValidation;
 
 namespace Raven.Server.ServerWide
 {
@@ -107,6 +108,8 @@ namespace Raven.Server.ServerWide
         public static readonly Func<BlittableJsonReaderObject, RevisionsConfiguration> RevisionsConfiguration = GenerateJsonDeserializationRoutine<RevisionsConfiguration>();
 
         public static readonly Func<BlittableJsonReaderObject, DocumentsCompressionConfiguration> DocumentsCompressionConfiguration = GenerateJsonDeserializationRoutine<DocumentsCompressionConfiguration>();
+        
+        public static readonly Func<BlittableJsonReaderObject, SchemaValidationConfiguration> SchemaValidationConfiguration = GenerateJsonDeserializationRoutine<SchemaValidationConfiguration>();
 
         public static readonly Func<BlittableJsonReaderObject, RevisionsCollectionConfiguration> RevisionsCollectionConfiguration = GenerateJsonDeserializationRoutine<RevisionsCollectionConfiguration>();
 
