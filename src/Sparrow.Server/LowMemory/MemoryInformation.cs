@@ -16,7 +16,7 @@ using NativeMemory = Sparrow.Utils.NativeMemory;
 
 namespace Sparrow.LowMemory
 {
-    public static class MemoryInformation
+    public static partial class MemoryInformation
     {
         private static readonly Logger Logger = LoggingSource.Instance.GetLogger<MemoryInfoResult>("Server");
 
@@ -76,14 +76,6 @@ namespace Sparrow.LowMemory
             InstalledMemory = new Size(256, SizeUnit.Megabytes)
         };
 
-        public static bool DisableEarlyOutOfMemoryCheck =
-            string.Equals(Environment.GetEnvironmentVariable("RAVEN_DISABLE_EARLY_OOM"), "true", StringComparison.OrdinalIgnoreCase);
-
-        public static bool EnableEarlyOutOfMemoryCheck =
-            string.Equals(Environment.GetEnvironmentVariable("RAVEN_ENABLE_EARLY_OOM"), "true", StringComparison.OrdinalIgnoreCase);
-
-        public static bool EnableEarlyOutOfMemoryChecks = false; // we don't want this to run on the clients
-
         private static float _minimumFreeCommittedMemoryPercentage = 0.05f;
         private static Size _maxFreeCommittedMemoryToKeep = new Size(128, SizeUnit.Megabytes);
         private static Size _lowMemoryCommitLimitInMb = new Size(512, SizeUnit.Megabytes);
@@ -111,85 +103,6 @@ namespace Sparrow.LowMemory
             _minimumFreeCommittedMemoryPercentage = minimumFreeCommittedMemoryPercentage;
             _maxFreeCommittedMemoryToKeep = maxFreeCommittedMemoryToKeep;
             _lowMemoryCommitLimitInMb = lowMemoryCommitLimitInMb;
-        }
-
-        public static void AssertNotAboutToRunOutOfMemory()
-        {
-            if (EnableEarlyOutOfMemoryChecks == false)
-                return;
-
-            if (DisableEarlyOutOfMemoryCheck)
-                return;
-
-            if (PlatformDetails.RunningOnPosix &&       // we only _need_ this check on Windows
-                EnableEarlyOutOfMemoryCheck == false)   // but we want to enable this manually if needed
-                return;
-
-            var memInfo = GetMemoryInfo();
-            if (IsEarlyOutOfMemoryInternal(memInfo, earlyOutOfMemoryWarning: false, out _))
-                ThrowInsufficientMemory(memInfo);
-        }
-
-        public static bool IsEarlyOutOfMemory(MemoryInfoResult memInfo, out Size commitChargeThreshold)
-        {
-            if (PlatformDetails.RunningOnPosix &&       // we only _need_ this check on Windows
-                EnableEarlyOutOfMemoryCheck == false)   // but we want to enable this manually if needed
-            {
-                commitChargeThreshold = Size.Zero;
-                return false;
-            }
-
-            return IsEarlyOutOfMemoryInternal(memInfo, earlyOutOfMemoryWarning: true, out commitChargeThreshold);
-        }
-
-        private static bool IsEarlyOutOfMemoryInternal(MemoryInfoResult memInfo, bool earlyOutOfMemoryWarning, out Size commitChargeThreshold)
-        {
-            // if we are about to create a new thread, might not always be a good idea:
-            // https://ayende.com/blog/181537-B/production-test-run-overburdened-and-under-provisioned
-            // https://ayende.com/blog/181569-A/threadpool-vs-pool-thread
-
-            Size overage;
-            if (memInfo.CurrentCommitCharge > memInfo.TotalCommittableMemory)
-            {
-                // this can happen on containers, since we get this information from the host, and
-                // sometimes this kind of stat is shared, see:
-                // https://fabiokung.com/2014/03/13/memory-inside-linux-containers/
-
-                commitChargeThreshold = GetMinCommittedToKeep(memInfo.TotalPhysicalMemory);
-                overage =
-                    commitChargeThreshold +                                    //extra to keep free
-                    (memInfo.TotalPhysicalMemory - memInfo.AvailableMemory);   //actually in use now
-
-                return overage >= memInfo.TotalPhysicalMemory;
-            }
-
-            commitChargeThreshold = GetMinCommittedToKeep(memInfo.TotalCommittableMemory);
-            overage = commitChargeThreshold + memInfo.CurrentCommitCharge;
-            return overage >= memInfo.TotalCommittableMemory;
-
-            Size GetMinCommittedToKeep(Size currentValue)
-            {
-                var minFreeToKeep = Size.Min(_maxFreeCommittedMemoryToKeep, currentValue * _minimumFreeCommittedMemoryPercentage);
-
-                if (earlyOutOfMemoryWarning)
-                {
-                    return Size.Min(
-                        _lowMemoryCommitLimitInMb,
-                        // needs to be bigger than the MaxFreeCommittedMemoryToKeep
-                        Size.Max(currentValue / 20, minFreeToKeep * 1.5));
-                }
-
-                return minFreeToKeep;
-            }
-        }
-
-        private static void ThrowInsufficientMemory(MemoryInfoResult memInfo)
-        {
-            LowMemoryNotification.Instance.SimulateLowMemoryNotification();
-
-            throw new EarlyOutOfMemoryException($"The amount of available memory to commit on the system is low. " +
-                                                MemoryUtils.GetExtendedMemoryInfo(memInfo, GetDirtyMemoryState()), memInfo);
-
         }
 
         public static (long Rss, long Swap) GetMemoryUsageFromProcStatus()
