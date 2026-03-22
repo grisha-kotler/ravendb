@@ -3,4 +3,4 @@
 using BenchmarkDotNet.Running;
 using RequestHandler.Benchmark;
 
-BenchmarkSwitcher.FromAssembly(typeof(RequestContextScopingBenchmark).Assembly).Run(args);
+BenchmarkSwitcher.FromAssembly(typeof(StreamDocumentsFromIndexBenchmark).Assembly).Run(args);
