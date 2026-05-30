@@ -1175,4 +1175,691 @@ public class PullReplicationFailoverTests : ReplicationTestBase
         }
     }
 
+    // Branch B: all scanned documents are filtered — sender sends a heartbeat carrying
+    // CompletedSourceFrontierChangeVector. Cursor must advance past the filtered items.
+    [RavenFact(RavenTestCategory.Replication)]
+    public async Task SinkToHub_BranchB_AllFilteredBatch_CursorAdvancesPastFilteredItems()
+    {
+        DebuggerAttachedTimeout.DisableLongTimespan = true;
+
+        var (hubNodes, hub, certs) = await CreateRaftClusterWithSsl(3);
+        using (var hubStore = GetDocumentStore(new Options
+        {
+            Server = hub,
+            ReplicationFactor = 3,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value,
+            AdminCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        using (var sinkStore = GetDocumentStore(new Options
+        {
+            AdminCertificate = certs.ServerCertificateForCommunication.Value,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        {
+#pragma warning disable SYSLIB0057
+            var pullCert = new X509Certificate2(
+                await File.ReadAllBytesAsync(certs.ClientCertificate2Path), (string)null,
+                X509KeyStorageFlags.Exportable);
+#pragma warning restore SYSLIB0057
+
+            var name = $"pull-replication {GetDatabaseName()}";
+
+            await hubStore.Maintenance.ForDatabase(hubStore.Database).SendAsync(
+                new PutPullReplicationAsHubOperation(new PullReplicationDefinition(name)
+                {
+                    Mode = PullReplicationMode.SinkToHub,
+                    MentorNode = "A",
+                    WithFiltering = true
+                }));
+
+            await hubStore.Maintenance.SendAsync(new RegisterReplicationHubAccessOperation(name,
+                new ReplicationHubAccess
+                {
+                    Name = "SinkAccess",
+                    CertificateBase64 = Convert.ToBase64String(pullCert.Export(X509ContentType.Cert)),
+                    AllowedSinkToHubPaths = new[] { "tickets/*" }
+                }));
+
+            var hubUrls = hubNodes.Select(s => s.WebUrl).ToArray();
+            var pullReplication = new PullReplicationAsSink(hubStore.Database, $"ConnectionString-{hubStore.Database}", name)
+            {
+                Mode = PullReplicationMode.SinkToHub,
+                CertificateWithPrivateKey = Convert.ToBase64String(pullCert.Export(X509ContentType.Pfx))
+            };
+            var result = await AddWatcherToReplicationTopology((DocumentStore)sinkStore, pullReplication, hubUrls);
+
+            // Phase 1: allowed documents — cursor advances to cover these
+            using (var session = sinkStore.OpenSession())
+            {
+                for (int i = 0; i < 512; i++)
+                    session.Store(new User { Name = $"Ticket{i}" }, $"tickets/{i}");
+                session.SaveChanges();
+            }
+
+            Assert.True(WaitForDocument(hubStore, "tickets/511", 30_000));
+
+            Assert.True(WaitForValue(() =>
+            {
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var key = ExternalReplicationState.GenerateItemName(sinkStore.Database, result.TaskId, ExternalReplicationState.ReplicationStateType.SinkCursor);
+                    var blittable = Server.ServerStore.Cluster.Read(ctx, key);
+                    if (blittable == null)
+                        return false;
+                    var state = JsonDeserializationCluster.ExternalReplicationState(blittable);
+                    return state.SourceChangeVector != null;
+                }
+            }, true, 30_000));
+
+            // Phase 2: all-filtered batch (users/* are not in AllowedSinkToHubPaths).
+            // Sender scans these, finds nothing to deliver, sends a heartbeat with
+            // CompletedSourceFrontierChangeVector covering the filtered items.
+            // Cursor must advance past these etags so a reconnect does not re-scan them.
+            using (var session = sinkStore.OpenSession())
+            {
+                for (int i = 0; i < 512; i++)
+                    session.Store(new User { Name = $"User{i}" }, $"users/{i}");
+                session.SaveChanges();
+            }
+
+            // Cursor must cover all 1024 source items, including the 512 filtered ones
+            Assert.True(WaitForValue(() =>
+            {
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var key = ExternalReplicationState.GenerateItemName(sinkStore.Database, result.TaskId, ExternalReplicationState.ReplicationStateType.SinkCursor);
+                    var blittable = Server.ServerStore.Cluster.Read(ctx, key);
+                    if (blittable == null)
+                        return false;
+                    var state = JsonDeserializationCluster.ExternalReplicationState(blittable);
+                    // cursor must have advanced past the filtered users/* items (etag > 512)
+                    if (state.SourceChangeVector == null)
+                        return false;
+                    long etag = ChangeVectorUtils.GetEtagById(state.SourceChangeVector, sinkStore.Identifier);
+                    return etag >= 1024;
+                }
+            }, true, 30_000));
+
+            var nodeAUrl = hub.ServerStore.GetClusterTopology().GetUrlFromTag("A");
+            var nodeAServer = Servers.Single(s => s.WebUrl == nodeAUrl);
+            await DisposeServerAndWaitForFinishOfDisposalAsync(nodeAServer);
+
+            using (var session = sinkStore.OpenSession())
+            {
+                session.Store(new User { Name = "Marker" }, "tickets/marker");
+                session.SaveChanges();
+            }
+
+            Assert.True(WaitForDocument(hubStore, "tickets/marker", 30_000));
+
+            var statsAfter = await sinkStore.Maintenance.SendAsync(new GetReplicationPerformanceStatisticsOperation());
+            var docsInNewConnection = statsAfter.Outgoing
+                ?.Sum(o => o.Performance?.Sum(p => p.Network?.DocumentOutputCount ?? 0) ?? 0) ?? 0;
+
+            Assert.True(docsInNewConnection <= 1,
+                $"After hub failover, expected <= 1 document sent on new connection but got {docsInNewConnection}. " +
+                "Cursor did not advance past filtered items — sink re-scanned and re-sent them.");
+        }
+    }
+
+    // Branch C: sender scans only prevented-deletion items (tombstones) — sends a heartbeat
+    // carrying CompletedSourceFrontierChangeVector. Cursor must advance past the tombstones.
+    [RavenFact(RavenTestCategory.Replication)]
+    public async Task SinkToHub_BranchC_PreventedDeletions_CursorAdvancesPastPreventedItems()
+    {
+        DebuggerAttachedTimeout.DisableLongTimespan = true;
+
+        var (hubNodes, hub, certs) = await CreateRaftClusterWithSsl(3);
+        using (var hubStore = GetDocumentStore(new Options
+        {
+            Server = hub,
+            ReplicationFactor = 3,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value,
+            AdminCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        using (var sinkStore = GetDocumentStore(new Options
+        {
+            AdminCertificate = certs.ServerCertificateForCommunication.Value,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        {
+#pragma warning disable SYSLIB0057
+            var pullCert = new X509Certificate2(
+                await File.ReadAllBytesAsync(certs.ClientCertificate2Path), (string)null,
+                X509KeyStorageFlags.Exportable);
+#pragma warning restore SYSLIB0057
+
+            var name = $"pull-replication {GetDatabaseName()}";
+
+            await hubStore.Maintenance.ForDatabase(hubStore.Database).SendAsync(
+                new PutPullReplicationAsHubOperation(new PullReplicationDefinition(name)
+                {
+                    Mode = PullReplicationMode.SinkToHub,
+                    MentorNode = "A",
+                    PreventDeletionsMode = PreventDeletionsMode.PreventSinkToHubDeletions
+                }));
+
+            await hubStore.Maintenance.SendAsync(new RegisterReplicationHubAccessOperation(name,
+                new ReplicationHubAccess
+                {
+                    Name = "SinkAccess",
+                    CertificateBase64 = Convert.ToBase64String(pullCert.Export(X509ContentType.Cert))
+                }));
+
+            var hubUrls = hubNodes.Select(s => s.WebUrl).ToArray();
+            var pullReplication = new PullReplicationAsSink(hubStore.Database, $"ConnectionString-{hubStore.Database}", name)
+            {
+                Mode = PullReplicationMode.SinkToHub,
+                CertificateWithPrivateKey = Convert.ToBase64String(pullCert.Export(X509ContentType.Pfx))
+            };
+            var result = await AddWatcherToReplicationTopology((DocumentStore)sinkStore, pullReplication, hubUrls);
+
+            // Phase 1: live documents — replicated and cursor advances
+            using (var session = sinkStore.OpenSession())
+            {
+                for (int i = 0; i < 512; i++)
+                    session.Store(new User { Name = $"User{i}" }, $"users/{i}");
+                session.SaveChanges();
+            }
+
+            Assert.True(WaitForDocument(hubStore, "users/511", 30_000));
+
+            Assert.True(WaitForValue(() =>
+            {
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var key = ExternalReplicationState.GenerateItemName(sinkStore.Database, result.TaskId, ExternalReplicationState.ReplicationStateType.SinkCursor);
+                    var blittable = Server.ServerStore.Cluster.Read(ctx, key);
+                    if (blittable == null)
+                        return false;
+                    var state = JsonDeserializationCluster.ExternalReplicationState(blittable);
+                    return state.SourceChangeVector != null;
+                }
+            }, true, 30_000));
+
+            // Phase 2: delete 256 docs — tombstones are prevented from being sent (Branch C).
+            // Sender scans these, skips them, sends a heartbeat with CompletedSourceFrontierChangeVector.
+            // Cursor must advance past these tombstone etags.
+            using (var session = sinkStore.OpenSession())
+            {
+                for (int i = 0; i < 256; i++)
+                    session.Delete($"users/{i}");
+                session.SaveChanges();
+            }
+
+            // Cursor must cover the tombstone etags (> 512)
+            Assert.True(WaitForValue(() =>
+            {
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var key = ExternalReplicationState.GenerateItemName(sinkStore.Database, result.TaskId, ExternalReplicationState.ReplicationStateType.SinkCursor);
+                    var blittable = Server.ServerStore.Cluster.Read(ctx, key);
+                    if (blittable == null)
+                        return false;
+                    var state = JsonDeserializationCluster.ExternalReplicationState(blittable);
+                    if (state.SourceChangeVector == null)
+                        return false;
+                    long etag = ChangeVectorUtils.GetEtagById(state.SourceChangeVector, sinkStore.Identifier);
+                    return etag >= 768; // 512 docs + 256 tombstones
+                }
+            }, true, 30_000));
+
+            var nodeAUrl = hub.ServerStore.GetClusterTopology().GetUrlFromTag("A");
+            var nodeAServer = Servers.Single(s => s.WebUrl == nodeAUrl);
+            await DisposeServerAndWaitForFinishOfDisposalAsync(nodeAServer);
+
+            using (var session = sinkStore.OpenSession())
+            {
+                session.Store(new User { Name = "Marker" }, "marker/post-failover");
+                session.SaveChanges();
+            }
+
+            Assert.True(WaitForDocument(hubStore, "marker/post-failover", 30_000));
+
+            var statsAfter = await sinkStore.Maintenance.SendAsync(new GetReplicationPerformanceStatisticsOperation());
+            var docsInNewConnection = statsAfter.Outgoing
+                ?.Sum(o => o.Performance?.Sum(p => p.Network?.DocumentOutputCount ?? 0) ?? 0) ?? 0;
+
+            Assert.True(docsInNewConnection <= 1,
+                $"After hub failover, expected <= 1 document sent on new connection but got {docsInNewConnection}. " +
+                "Cursor did not advance past prevented-deletion tombstones.");
+        }
+    }
+
+    // HubToSink direction: when Hub sends a document batch to Sink, Sink must persist a
+    // hub-to-sink cursor in its cluster state so reconnects can resume from the source frontier.
+    [RavenFact(RavenTestCategory.Replication)]
+    public async Task HubToSink_SinkPersistsCursorAfterDocumentBatch()
+    {
+        DebuggerAttachedTimeout.DisableLongTimespan = true;
+
+        var (hubNodes, hub, certs) = await CreateRaftClusterWithSsl(3);
+        using (var hubStore = GetDocumentStore(new Options
+        {
+            Server = hub,
+            ReplicationFactor = 3,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value,
+            AdminCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        using (var sinkStore = GetDocumentStore(new Options
+        {
+            AdminCertificate = certs.ServerCertificateForCommunication.Value,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        {
+#pragma warning disable SYSLIB0057
+            var pullCert = new X509Certificate2(
+                await File.ReadAllBytesAsync(certs.ClientCertificate2Path), (string)null,
+                X509KeyStorageFlags.Exportable);
+#pragma warning restore SYSLIB0057
+
+            var name = $"pull-replication {GetDatabaseName()}";
+
+            await hubStore.Maintenance.ForDatabase(hubStore.Database).SendAsync(
+                new PutPullReplicationAsHubOperation(new PullReplicationDefinition(name)
+                {
+                    Mode = PullReplicationMode.HubToSink,
+                    MentorNode = "A",
+                    WithFiltering = true
+                }));
+
+            await hubStore.Maintenance.SendAsync(new RegisterReplicationHubAccessOperation(name,
+                new ReplicationHubAccess
+                {
+                    Name = "SinkAccess",
+                    CertificateBase64 = Convert.ToBase64String(pullCert.Export(X509ContentType.Cert)),
+                    AllowedHubToSinkPaths = new[] { "users/*" }
+                }));
+
+            var hubUrls = hubNodes.Select(s => s.WebUrl).ToArray();
+            var pullReplication = new PullReplicationAsSink(hubStore.Database, $"ConnectionString-{hubStore.Database}", name)
+            {
+                Mode = PullReplicationMode.HubToSink,
+                CertificateWithPrivateKey = Convert.ToBase64String(pullCert.Export(X509ContentType.Pfx))
+            };
+            var result = await AddWatcherToReplicationTopology((DocumentStore)sinkStore, pullReplication, hubUrls);
+
+            using (var session = hubStore.OpenSession())
+            {
+                for (int i = 0; i < 1024; i++)
+                    session.Store(new User { Name = $"User{i}" }, $"users/{i}");
+                session.SaveChanges();
+            }
+
+            Assert.True(WaitForDocument(sinkStore, "users/1023", 30_000));
+
+            // Sink must persist the hub-to-sink cursor in its cluster state.
+            // key = values/{sinkDB}/hub-cursor/{taskId}
+            // value = Hub source frontier (SourceChangeVector != null)
+            Assert.True(WaitForValue(() =>
+            {
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var key = ExternalReplicationState.GenerateItemName(
+                        sinkStore.Database, result.TaskId,
+                        ExternalReplicationState.ReplicationStateType.HubCursor);
+                    var blittable = Server.ServerStore.Cluster.Read(ctx, key);
+                    if (blittable == null)
+                        return false;
+                    var state = JsonDeserializationCluster.ExternalReplicationState(blittable);
+                    return state.SourceChangeVector != null;
+                }
+            }, true, 30_000));
+        }
+    }
+
+    // HubToSink direction: after a Hub node fails over, the Sink presents its persisted
+    // hub-to-sink cursor in the new handshake. Hub node B resumes from that frontier and
+    // does not resend the already-received documents.
+    [RavenFact(RavenTestCategory.Replication)]
+    public async Task HubToSink_HubNodeFailover_NoDuplicatesAfterCursorPersisted()
+    {
+        DebuggerAttachedTimeout.DisableLongTimespan = true;
+
+        var (hubNodes, hub, certs) = await CreateRaftClusterWithSsl(3);
+        using (var hubStore = GetDocumentStore(new Options
+        {
+            Server = hub,
+            ReplicationFactor = 3,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value,
+            AdminCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        using (var sinkStore = GetDocumentStore(new Options
+        {
+            AdminCertificate = certs.ServerCertificateForCommunication.Value,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        {
+#pragma warning disable SYSLIB0057
+            var pullCert = new X509Certificate2(
+                await File.ReadAllBytesAsync(certs.ClientCertificate2Path), (string)null,
+                X509KeyStorageFlags.Exportable);
+#pragma warning restore SYSLIB0057
+
+            var name = $"pull-replication {GetDatabaseName()}";
+
+            await hubStore.Maintenance.ForDatabase(hubStore.Database).SendAsync(
+                new PutPullReplicationAsHubOperation(new PullReplicationDefinition(name)
+                {
+                    Mode = PullReplicationMode.HubToSink,
+                    MentorNode = "A",
+                    WithFiltering = true
+                }));
+
+            await hubStore.Maintenance.SendAsync(new RegisterReplicationHubAccessOperation(name,
+                new ReplicationHubAccess
+                {
+                    Name = "SinkAccess",
+                    CertificateBase64 = Convert.ToBase64String(pullCert.Export(X509ContentType.Cert)),
+                    AllowedHubToSinkPaths = new[] { "users/*" }
+                }));
+
+            var hubUrls = hubNodes.Select(s => s.WebUrl).ToArray();
+            var pullReplication = new PullReplicationAsSink(hubStore.Database, $"ConnectionString-{hubStore.Database}", name)
+            {
+                Mode = PullReplicationMode.HubToSink,
+                CertificateWithPrivateKey = Convert.ToBase64String(pullCert.Export(X509ContentType.Pfx))
+            };
+            var result = await AddWatcherToReplicationTopology((DocumentStore)sinkStore, pullReplication, hubUrls);
+
+            using (var session = hubStore.OpenSession())
+            {
+                for (int i = 0; i < 1024; i++)
+                    session.Store(new User { Name = $"User{i}" }, $"users/{i}");
+                session.SaveChanges();
+            }
+
+            Assert.True(WaitForDocument(sinkStore, "users/1023", 30_000));
+
+            // Wait for Sink to persist the hub-to-sink cursor
+            Assert.True(WaitForValue(() =>
+            {
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var key = ExternalReplicationState.GenerateItemName(
+                        sinkStore.Database, result.TaskId,
+                        ExternalReplicationState.ReplicationStateType.HubCursor);
+                    var blittable = Server.ServerStore.Cluster.Read(ctx, key);
+                    if (blittable == null)
+                        return false;
+                    var state = JsonDeserializationCluster.ExternalReplicationState(blittable);
+                    return state.SourceChangeVector != null;
+                }
+            }, true, 30_000));
+
+            var nodeAUrl = hub.ServerStore.GetClusterTopology().GetUrlFromTag("A");
+            var nodeAServer = Servers.Single(s => s.WebUrl == nodeAUrl);
+            await DisposeServerAndWaitForFinishOfDisposalAsync(nodeAServer);
+
+            using (var session = hubStore.OpenSession())
+            {
+                session.Store(new User { Name = "Marker" }, "users/marker");
+                session.SaveChanges();
+            }
+
+            Assert.True(WaitForDocument(sinkStore, "users/marker", 30_000));
+
+            // Hub node B took over; Sink presented the cursor in the new handshake.
+            // Hub B must have sent only the marker, not the 1024 already-received documents.
+            var statsAfter = await hubStore.Maintenance.SendAsync(new GetReplicationPerformanceStatisticsOperation());
+            var docsInNewConnection = statsAfter.Outgoing
+                ?.Sum(o => o.Performance?.Sum(p => p.Network?.DocumentOutputCount ?? 0) ?? 0) ?? 0;
+
+            Assert.True(docsInNewConnection <= 1,
+                $"After hub node failover, expected <= 1 document sent on new hub-to-sink connection but got {docsInNewConnection}. " +
+                "Hub is re-sending already-received documents because the hub-to-sink cursor was not used.");
+        }
+    }
+
+    // HubToSink direction: when Hub scans only filtered items, it sends a heartbeat carrying
+    // CompletedSourceFrontierChangeVector. Sink must persist that frontier so a reconnect
+    // starts after the filtered items, not before them.
+    [RavenFact(RavenTestCategory.Replication)]
+    public async Task HubToSink_FilteredHeartbeat_SinkCursorAdvancesPastFilteredItems()
+    {
+        DebuggerAttachedTimeout.DisableLongTimespan = true;
+
+        var (hubNodes, hub, certs) = await CreateRaftClusterWithSsl(3);
+        using (var hubStore = GetDocumentStore(new Options
+        {
+            Server = hub,
+            ReplicationFactor = 3,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value,
+            AdminCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        using (var sinkStore = GetDocumentStore(new Options
+        {
+            AdminCertificate = certs.ServerCertificateForCommunication.Value,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        {
+#pragma warning disable SYSLIB0057
+            var pullCert = new X509Certificate2(
+                await File.ReadAllBytesAsync(certs.ClientCertificate2Path), (string)null,
+                X509KeyStorageFlags.Exportable);
+#pragma warning restore SYSLIB0057
+
+            var name = $"pull-replication {GetDatabaseName()}";
+
+            await hubStore.Maintenance.ForDatabase(hubStore.Database).SendAsync(
+                new PutPullReplicationAsHubOperation(new PullReplicationDefinition(name)
+                {
+                    Mode = PullReplicationMode.HubToSink,
+                    MentorNode = "A",
+                    WithFiltering = true
+                }));
+
+            await hubStore.Maintenance.SendAsync(new RegisterReplicationHubAccessOperation(name,
+                new ReplicationHubAccess
+                {
+                    Name = "SinkAccess",
+                    CertificateBase64 = Convert.ToBase64String(pullCert.Export(X509ContentType.Cert)),
+                    AllowedHubToSinkPaths = new[] { "tickets/*" }
+                }));
+
+            var hubUrls = hubNodes.Select(s => s.WebUrl).ToArray();
+            var pullReplication = new PullReplicationAsSink(hubStore.Database, $"ConnectionString-{hubStore.Database}", name)
+            {
+                Mode = PullReplicationMode.HubToSink,
+                CertificateWithPrivateKey = Convert.ToBase64String(pullCert.Export(X509ContentType.Pfx))
+            };
+            var result = await AddWatcherToReplicationTopology((DocumentStore)sinkStore, pullReplication, hubUrls);
+
+            // Phase 1: allowed docs arrive at Sink and cursor advances
+            using (var session = hubStore.OpenSession())
+            {
+                for (int i = 0; i < 512; i++)
+                    session.Store(new User { Name = $"Ticket{i}" }, $"tickets/{i}");
+                session.SaveChanges();
+            }
+
+            Assert.True(WaitForDocument(sinkStore, "tickets/511", 30_000));
+
+            Assert.True(WaitForValue(() =>
+            {
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var key = ExternalReplicationState.GenerateItemName(sinkStore.Database, result.TaskId, ExternalReplicationState.ReplicationStateType.HubCursor);
+                    var blittable = Server.ServerStore.Cluster.Read(ctx, key);
+                    if (blittable == null)
+                        return false;
+                    var state = JsonDeserializationCluster.ExternalReplicationState(blittable);
+                    return state.SourceChangeVector != null;
+                }
+            }, true, 30_000));
+
+            // Phase 2: filtered-only batch — Hub scans "users/*" items (filtered out),
+            // sends heartbeat with CompletedSourceFrontierChangeVector.
+            // Sink cursor must advance past these Hub source etags.
+            using (var session = hubStore.OpenSession())
+            {
+                for (int i = 0; i < 512; i++)
+                    session.Store(new User { Name = $"User{i}" }, $"users/{i}");
+                session.SaveChanges();
+            }
+
+            Assert.True(WaitForValue(() =>
+            {
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var key = ExternalReplicationState.GenerateItemName(sinkStore.Database, result.TaskId, ExternalReplicationState.ReplicationStateType.HubCursor);
+                    var blittable = Server.ServerStore.Cluster.Read(ctx, key);
+                    if (blittable == null)
+                        return false;
+                    var state = JsonDeserializationCluster.ExternalReplicationState(blittable);
+                    // cursor must have advanced past the filtered users/* hub items
+                    if (state.SourceChangeVector == null)
+                        return false;
+                    long etag = ChangeVectorUtils.GetEtagById(state.SourceChangeVector, hubStore.Identifier);
+                    return etag >= 1024;
+                }
+            }, true, 30_000));
+
+            var nodeAUrl = hub.ServerStore.GetClusterTopology().GetUrlFromTag("A");
+            var nodeAServer = Servers.Single(s => s.WebUrl == nodeAUrl);
+            await DisposeServerAndWaitForFinishOfDisposalAsync(nodeAServer);
+
+            using (var session = hubStore.OpenSession())
+            {
+                session.Store(new User { Name = "Marker" }, "tickets/marker");
+                session.SaveChanges();
+            }
+
+            Assert.True(WaitForDocument(sinkStore, "tickets/marker", 30_000));
+
+            var statsAfter = await hubStore.Maintenance.SendAsync(new GetReplicationPerformanceStatisticsOperation());
+            var docsInNewConnection = statsAfter.Outgoing
+                ?.Sum(o => o.Performance?.Sum(p => p.Network?.DocumentOutputCount ?? 0) ?? 0) ?? 0;
+
+            Assert.True(docsInNewConnection <= 1,
+                $"After hub failover, expected <= 1 document sent on new connection but got {docsInNewConnection}. " +
+                "Hub-to-sink cursor did not advance past filtered heartbeat items.");
+        }
+    }
+
+    // HubToSink direction: after a Sink node fails over, the new Sink node reads the
+    // persisted hub-to-sink cursor from the Sink cluster state and presents it to the Hub.
+    // Hub resumes from that frontier and does not resend already-received documents.
+    [RavenFact(RavenTestCategory.Replication)]
+    public async Task HubToSink_SinkNodeFailover_NoDuplicatesAfterCursorPersisted()
+    {
+        DebuggerAttachedTimeout.DisableLongTimespan = true;
+
+        var (hubNodes, hub, certs) = await CreateRaftClusterWithSsl(3);
+        var (sinkNodes, sinkLeader) = await CreateRaftCluster(3);
+
+        var sinkDB = GetDatabaseName();
+        await CreateDatabaseInCluster(sinkDB, 3, sinkLeader.WebUrl);
+
+        using (var hubStore = GetDocumentStore(new Options
+        {
+            Server = hub,
+            ReplicationFactor = 3,
+            ClientCertificate = certs.ServerCertificateForCommunication.Value,
+            AdminCertificate = certs.ServerCertificateForCommunication.Value
+        }))
+        using (var sinkStoreA = new DocumentStore
+        {
+            Urls = new[] { sinkNodes.Single(n => n.ServerStore.NodeTag == "A").WebUrl },
+            Database = sinkDB,
+            Conventions = new DocumentConventions { DisableTopologyUpdates = true }
+        }.Initialize())
+        using (var sinkStoreB = new DocumentStore
+        {
+            Urls = new[] { sinkNodes.Single(n => n.ServerStore.NodeTag == "B").WebUrl },
+            Database = sinkDB,
+            Conventions = new DocumentConventions { DisableTopologyUpdates = true }
+        }.Initialize())
+        {
+#pragma warning disable SYSLIB0057
+            var pullCert = new X509Certificate2(
+                await File.ReadAllBytesAsync(certs.ClientCertificate2Path), (string)null,
+                X509KeyStorageFlags.Exportable);
+#pragma warning restore SYSLIB0057
+
+            var name = $"pull-replication {GetDatabaseName()}";
+
+            await hubStore.Maintenance.ForDatabase(hubStore.Database).SendAsync(
+                new PutPullReplicationAsHubOperation(new PullReplicationDefinition(name)
+                {
+                    Mode = PullReplicationMode.HubToSink,
+                    WithFiltering = true
+                }));
+
+            await hubStore.Maintenance.SendAsync(new RegisterReplicationHubAccessOperation(name,
+                new ReplicationHubAccess
+                {
+                    Name = "SinkAccess",
+                    CertificateBase64 = Convert.ToBase64String(pullCert.Export(X509ContentType.Cert)),
+                    AllowedHubToSinkPaths = new[] { "users/*" }
+                }));
+
+            var pullReplication = new PullReplicationAsSink(hubStore.Database, $"ConnectionString-{hubStore.Database}", name)
+            {
+                Mode = PullReplicationMode.HubToSink,
+                CertificateWithPrivateKey = Convert.ToBase64String(pullCert.Export(X509ContentType.Pfx)),
+                MentorNode = "A"
+            };
+            var result = await AddWatcherToReplicationTopology((DocumentStore)sinkStoreA, pullReplication, hubNodes.Select(s => s.WebUrl).ToArray());
+
+            using (var session = hubStore.OpenSession())
+            {
+                for (int i = 0; i < 1024; i++)
+                    session.Store(new User { Name = $"User{i}" }, $"users/{i}");
+                session.SaveChanges();
+            }
+
+            Assert.True(await WaitForDocumentInClusterAsync<User>(
+                sinkNodes.Where(n => n.ServerStore.NodeTag == "A").ToList(),
+                sinkDB, "users/1023", u => true, TimeSpan.FromSeconds(30)));
+
+            var sinkNodeA = sinkNodes.Single(n => n.ServerStore.NodeTag == "A");
+
+            // Sink must persist the hub-to-sink cursor before the node is killed
+            Assert.True(WaitForValue(() =>
+            {
+                using (sinkNodeA.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    var key = ExternalReplicationState.GenerateItemName(sinkDB, result.TaskId, ExternalReplicationState.ReplicationStateType.HubCursor);
+                    var blittable = sinkNodeA.ServerStore.Cluster.Read(ctx, key);
+                    if (blittable == null)
+                        return false;
+                    var state = JsonDeserializationCluster.ExternalReplicationState(blittable);
+                    return state.SourceChangeVector != null;
+                }
+            }, true, 30_000));
+
+            await DisposeServerAndWaitForFinishOfDisposalAsync(sinkNodeA);
+
+            // Sink node B takes over. It reads the hub-to-sink cursor from the shared Raft state
+            // and presents it in the new handshake. Hub resumes after that frontier.
+            using (var session = hubStore.OpenSession())
+            {
+                session.Store(new User { Name = "Marker" }, "users/marker");
+                session.SaveChanges();
+            }
+
+            Assert.True(await WaitForDocumentInClusterAsync<User>(
+                sinkNodes.Where(n => n.ServerStore.NodeTag == "B").ToList(),
+                sinkDB, "users/marker", u => true, TimeSpan.FromSeconds(30)));
+
+            var statsAfter = await hubStore.Maintenance.SendAsync(new GetReplicationPerformanceStatisticsOperation());
+            var docsInNewConnection = statsAfter.Outgoing
+                ?.Sum(o => o.Performance?.Sum(p => p.Network?.DocumentOutputCount ?? 0) ?? 0) ?? 0;
+
+            Assert.True(docsInNewConnection <= 1,
+                $"After sink node failover, expected <= 1 document sent on new hub-to-sink connection but got {docsInNewConnection}. " +
+                "Hub is re-sending already-received documents because the Sink did not present the hub-to-sink cursor.");
+        }
+    }
+
 }
