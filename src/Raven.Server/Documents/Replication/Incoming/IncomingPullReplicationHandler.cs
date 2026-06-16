@@ -5,15 +5,15 @@ using System.Linq;
 using Raven.Client;
 using Raven.Client.Documents.Operations.Replication;
 using Raven.Client.Documents.Replication.Messages;
+using Raven.Client.Extensions;
+using Raven.Client.Util;
 using Raven.Server.Documents.Replication.Outgoing;
 using Raven.Server.Documents.Replication.ReplicationItems;
 using Raven.Server.Documents.Replication.Stats;
 using Raven.Server.Documents.TcpHandlers;
 using Raven.Server.Documents.TransactionMerger.Commands;
-using Raven.Server.ServerWide.Context;
-using Raven.Client.Extensions;
-using Raven.Client.Util;
 using Raven.Server.ServerWide.Commands;
+using Raven.Server.ServerWide.Context;
 using Raven.Server.Utils;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
@@ -154,6 +154,10 @@ namespace Raven.Server.Documents.Replication.Incoming
 
         private void PersistHubCursor(string confirmedHubCv)
         {
+            var existingCv = ReplicationUtils.ReadCursorFromClusterFor(ReplicationLoaderParent.Server, ReplicationLoaderParent.Database.Name, _incomingPullReplicationParams.TaskId, ExternalReplicationState.ReplicationStateType.HubCursor);
+            if (existingCv == confirmedHubCv)
+                return;
+
             var command = new UpdateExternalReplicationStateCommand(ReplicationLoaderParent.Database.Name, RaftIdGenerator.NewId())
             {
                 ExternalReplicationState = new ExternalReplicationState
@@ -164,7 +168,7 @@ namespace Raven.Server.Documents.Replication.Incoming
                     Type = ExternalReplicationState.ReplicationStateType.HubCursor
                 }
             };
-            ReplicationLoaderParent._server.SendToLeaderAsync(command).IgnoreUnobservedExceptions();
+            ReplicationLoaderParent.Server.SendToLeaderAsync(command).IgnoreUnobservedExceptions();
         }
 
         protected override void DisposeInternal()
